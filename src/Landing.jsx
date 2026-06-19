@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Shield from './Shield.jsx';
 import { HoverBtn, LangToggle } from './ui.jsx';
+import { useMediaQuery } from './useMediaQuery.js';
 import {
   TINCTURES, ORDINARY_ORDER, CHARGES, blazon, cap,
   HERO_FIELDS, HERO_SYMBOLS, HERO_INITIAL, contrastPool, pickContrast,
@@ -25,6 +26,9 @@ export default function Landing({ onOpenStudio }) {
   const [lang, setLang] = useState('formal');
   const [touched, setTouched] = useState(false);
   const [hoverPart, setHoverPart] = useState(null);
+
+  const isMobile = useMediaQuery('(max-width: 720px)');
+  const isTablet = useMediaQuery('(max-width: 1000px)');
 
   // ── Hero cycling (always tincture-rule valid via pickContrast) ──
   const cycleField = () => {
@@ -77,37 +81,40 @@ export default function Landing({ onOpenStudio }) {
   const ctrlValue = { fontFamily: "'Cormorant Garamond', serif", fontSize: 17, color: '#ECE6D8', flex: 1 };
   const cycleGlyph = <span style={{ fontSize: 15, color: '#C9A24B' }}>↻</span>;
 
-  const sectionWrap = { maxWidth: 1200, margin: '0 auto', padding: '0 32px' };
+  const PAD = isMobile ? 20 : 32;
+  const sectionWrap = { maxWidth: 1200, margin: '0 auto', padding: `0 ${PAD}px` };
 
   return (
     <div style={{ minHeight: '100vh' }}>
       {/* Header */}
-      <header style={{ ...sectionWrap, padding: '26px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <header style={{ ...sectionWrap, padding: `26px ${PAD}px`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
           {LOGO}
           <span style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 25, letterSpacing: '.5px' }}>Blazon</span>
         </div>
         <nav style={{ display: 'flex', alignItems: 'center', gap: 30 }}>
-          <a href="#modes" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Modes</a>
-          <a href="#gallery" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Gallery</a>
-          <a href="#pricing" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Pricing</a>
+          {!isMobile && <>
+            <a href="#modes" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Modes</a>
+            <a href="#gallery" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Gallery</a>
+            <a href="#pricing" style={{ color: 'rgba(236,230,216,.66)', textDecoration: 'none', fontSize: 14.5 }}>Pricing</a>
+          </>}
           <button onClick={onOpenStudio} style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '11px 20px', borderRadius: 7, fontWeight: 600, fontSize: 14.5, cursor: 'pointer' }}>Open the Studio</button>
         </nav>
       </header>
 
       {/* Hero */}
-      <section style={{ ...sectionWrap, padding: '54px 32px 88px', display: 'grid', gridTemplateColumns: '1.05fr .95fr', gap: 72, alignItems: 'center' }}>
-        <div>
+      <section style={{ ...sectionWrap, padding: isMobile ? `30px ${PAD}px 56px` : '54px 32px 88px', display: 'grid', gridTemplateColumns: isTablet ? '1fr' : '1.05fr .95fr', gap: isMobile ? 40 : 72, alignItems: 'center' }}>
+        <div style={isTablet ? { order: 2 } : undefined}>
           <div style={{ fontSize: 12.5, letterSpacing: '3.5px', color: '#C9A24B', fontWeight: 600, marginBottom: 22 }}>DESIGN A COAT OF ARMS</div>
-          <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 62, lineHeight: 1.04, margin: '0 0 24px', textWrap: 'balance' }}>Every family has a story worth a coat&nbsp;of&nbsp;arms.</h1>
-          <p style={{ fontSize: 18, lineHeight: 1.6, color: 'rgba(236,230,216,.72)', maxWidth: '30em', margin: '0 0 34px' }}>Describe someone you love. We translate it into authentic heraldry — the same grammar heralds have used for eight hundred years — and render it in bold, flat colour.</p>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+          <h1 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: isMobile ? 40 : 62, lineHeight: 1.04, margin: '0 0 24px', textWrap: 'balance' }}>Every family has a story worth a coat&nbsp;of&nbsp;arms.</h1>
+          <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.6, color: 'rgba(236,230,216,.72)', maxWidth: '30em', margin: '0 0 34px' }}>Describe someone you love. We translate it into authentic heraldry — the same grammar heralds have used for eight hundred years — and render it in bold, flat colour.</p>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
             <button onClick={onOpenStudio} style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '15px 26px', borderRadius: 8, fontWeight: 600, fontSize: 16, cursor: 'pointer' }}>Start with a description</button>
             <a href="#modes" style={{ color: '#ECE6D8', textDecoration: 'none', fontSize: 15.5, padding: '15px 6px', borderBottom: '1px solid rgba(201,162,75,.4)' }}>See how it works</a>
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 26, ...(isTablet ? { order: 1 } : null) }}>
           {/* The interactive coat of arms — the product thesis */}
           <div style={{ width: '100%', maxWidth: 392, background: 'radial-gradient(circle at 50% 44%, rgba(201,162,75,.12), transparent 68%)', padding: '8px 8px 4px' }}>
             <Shield
@@ -167,10 +174,10 @@ export default function Landing({ onOpenStudio }) {
       </section>
 
       {/* Modes */}
-      <section id="modes" style={{ ...sectionWrap, padding: '34px 32px 30px' }}>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 40, margin: '0 0 8px', textAlign: 'center' }}>Three ways in. One coat of arms.</h2>
+      <section id="modes" style={{ ...sectionWrap, padding: `34px ${PAD}px 30px` }}>
+        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 8px', textAlign: 'center' }}>Three ways in. One coat of arms.</h2>
         <p style={{ textAlign: 'center', color: 'rgba(236,230,216,.62)', fontSize: 16, margin: '0 0 42px' }}>The data is always the blazon. The interface is just a view over it — slide between modes any time, nothing is lost.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 22 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 22 }}>
           <div style={{ background: '#101D30', border: '1.5px solid #C9A24B', borderRadius: 13, padding: 28, position: 'relative' }}>
             <div style={{ position: 'absolute', top: -11, left: 24, background: '#C9A24B', color: '#0C0F17', fontSize: 11, fontWeight: 700, letterSpacing: '1px', padding: '4px 10px', borderRadius: 20 }}>YOU START HERE</div>
             <div style={{ fontFamily: "'Cormorant Garamond', serif", fontSize: 24, fontWeight: 600, margin: '6px 0 10px' }}>The Gifter</div>
@@ -205,9 +212,9 @@ export default function Landing({ onOpenStudio }) {
       </section>
 
       {/* Gallery */}
-      <section id="gallery" style={{ ...sectionWrap, padding: '58px 32px 30px' }}>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 40, margin: '0 0 36px', textAlign: 'center' }}>Made with Blazon</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 24 }}>
+      <section id="gallery" style={{ ...sectionWrap, padding: `58px ${PAD}px 30px` }}>
+        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 36px', textAlign: 'center' }}>Made with Blazon</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 24 }}>
           {GALLERY.map((g) => (
             <div key={g.title} style={{ background: '#0F1826', border: '1px solid rgba(201,162,75,.18)', borderRadius: 13, padding: '26px 26px 22px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
               <div style={{ width: 130 }}><Shield design={g.design} /></div>
@@ -219,9 +226,9 @@ export default function Landing({ onOpenStudio }) {
       </section>
 
       {/* Pricing */}
-      <section id="pricing" style={{ ...sectionWrap, padding: '58px 32px 30px' }}>
-        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 40, margin: '0 0 36px', textAlign: 'center' }}>Pricing</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 18 }}>
+      <section id="pricing" style={{ ...sectionWrap, padding: `58px ${PAD}px 30px` }}>
+        <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 36px', textAlign: 'center' }}>Pricing</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 18 }}>
           {[
             { tier: 'Free', price: '£0', body: 'One coat of arms, watermarked PNG, view the blazon.' },
             { tier: 'Personal', price: <>£9<span style={{ fontSize: 15, color: 'rgba(236,230,216,.5)' }}> /mo</span></>, body: 'Unlimited designs, hi-res PNG & SVG, PDF certificate, library.' },
@@ -239,17 +246,17 @@ export default function Landing({ onOpenStudio }) {
       </section>
 
       {/* Gift CTA */}
-      <section style={{ ...sectionWrap, padding: '48px 32px 80px' }}>
-        <div style={{ background: 'linear-gradient(115deg,#16273E,#101D30)', border: '1px solid rgba(201,162,75,.3)', borderRadius: 16, padding: 52, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 40 }}>
+      <section style={{ ...sectionWrap, padding: `48px ${PAD}px 80px` }}>
+        <div style={{ background: 'linear-gradient(115deg,#16273E,#101D30)', border: '1px solid rgba(201,162,75,.3)', borderRadius: 16, padding: isMobile ? 28 : 52, display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', gap: isMobile ? 24 : 40 }}>
           <div>
-            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 38, margin: '0 0 10px' }}>Give someone a coat of arms.</h2>
+            <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: isMobile ? 28 : 38, margin: '0 0 10px' }}>Give someone a coat of arms.</h2>
             <p style={{ fontSize: 16, color: 'rgba(236,230,216,.7)', margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A print-ready A3 certificate, the blazon typeset by hand, posted to your door. The most personal gift you can design in ten minutes.</p>
           </div>
-          <button onClick={onOpenStudio} style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '16px 30px', borderRadius: 8, fontWeight: 600, fontSize: 16, cursor: 'pointer', whiteSpace: 'nowrap' }}>Design a gift</button>
+          <button onClick={onOpenStudio} style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '16px 30px', borderRadius: 8, fontWeight: 600, fontSize: 16, cursor: 'pointer', whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto' }}>Design a gift</button>
         </div>
       </section>
 
-      <footer style={{ borderTop: '1px solid rgba(201,162,75,.16)', padding: '28px 32px', textAlign: 'center', color: 'rgba(236,230,216,.4)', fontSize: 13 }}>
+      <footer style={{ borderTop: '1px solid rgba(201,162,75,.16)', padding: `28px ${PAD}px`, textAlign: 'center', color: 'rgba(236,230,216,.4)', fontSize: 13 }}>
         Blazon — the heraldic manuscript, made digital. · <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic' }}>Per fess Or and Azure</span>
       </footer>
     </div>

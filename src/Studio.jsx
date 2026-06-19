@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Shield from './Shield.jsx';
 import { Swatch, Pill, LangToggle } from './ui.jsx';
+import { useMediaQuery } from './useMediaQuery.js';
 import {
   TINCTURES, TINCTURE_ORDER, ORDINARY_ORDER, CHARGE_ORDER, CHARGES,
   blazon, computeWarn, cap, PRESETS, pickPreset,
@@ -16,6 +17,7 @@ const LOGO = (
 const SHIELD_OUTLINE = 'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
 
 export default function Studio({ onBack }) {
+  const isMobile = useMediaQuery('(max-width: 820px)');
   const [step, setStep] = useState('describe'); // 'describe' | 'design'
   const [desc, setDesc] = useState('');
   const [selectedPreset, setSelectedPreset] = useState(null);
@@ -76,18 +78,20 @@ export default function Studio({ onBack }) {
   );
 
   return (
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: isMobile ? 'auto' : '100vh', minHeight: isMobile ? '100vh' : undefined, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden' }}>
       {/* Header */}
-      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', background: '#101A2A', borderBottom: '1px solid rgba(201,162,75,.25)', flex: 'none' }}>
+      <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '12px 16px' : '14px 24px', background: '#101A2A', borderBottom: '1px solid rgba(201,162,75,.25)', flex: 'none', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 13, cursor: 'pointer' }} onClick={onBack}>
           {LOGO}
           <span style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 21 }}>Blazon</span>
         </div>
-        <div style={{ display: 'flex', background: '#0C0F17', border: '1px solid rgba(201,162,75,.22)', borderRadius: 9, padding: 4, gap: 2 }}>
-          <div style={{ background: '#C9A24B', color: '#0C0F17', padding: '8px 18px', borderRadius: 6, fontSize: 13.5, fontWeight: 600 }}>Gifter</div>
-          <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Enthusiast</div>
-          <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Serious</div>
-        </div>
+        {!isMobile && (
+          <div style={{ display: 'flex', background: '#0C0F17', border: '1px solid rgba(201,162,75,.22)', borderRadius: 9, padding: 4, gap: 2 }}>
+            <div style={{ background: '#C9A24B', color: '#0C0F17', padding: '8px 18px', borderRadius: 6, fontSize: 13.5, fontWeight: 600 }}>Gifter</div>
+            <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Enthusiast</div>
+            <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Serious</div>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10 }}>
           <button style={{ background: 'transparent', color: '#ECE6D8', border: '1px solid rgba(201,162,75,.35)', padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer' }}>Save</button>
           <button style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Export</button>
@@ -95,9 +99,9 @@ export default function Studio({ onBack }) {
       </header>
 
       {/* Main */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
         {/* Left — live preview */}
-        <div style={{ flex: 1, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ flex: isMobile ? 'none' : 1, height: isMobile ? 320 : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 20, left: 24, fontSize: 11, letterSpacing: '2.5px', color: 'rgba(201,162,75,.7)', fontWeight: 600 }}>LIVE PREVIEW</div>
 
           {!generating && !design && (
@@ -116,7 +120,7 @@ export default function Studio({ onBack }) {
 
           {!generating && design && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', animation: 'fadein .5s ease' }}>
-              <div style={{ width: 300 }}><Shield design={design} /></div>
+              <div style={{ width: isMobile ? 188 : 300 }}><Shield design={design} /></div>
               {design.motto && design.motto.trim() && (
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: '#C9A24B', marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
               )}
@@ -125,7 +129,7 @@ export default function Studio({ onBack }) {
         </div>
 
         {/* Right — control panel */}
-        <aside style={{ width: 466, flex: 'none', background: '#0F1826', borderLeft: '1px solid rgba(201,162,75,.2)', overflowY: 'auto', padding: '30px 30px 40px' }}>
+        <aside style={{ width: isMobile ? '100%' : 466, flex: 'none', background: '#0F1826', borderLeft: isMobile ? 'none' : '1px solid rgba(201,162,75,.2)', borderTop: isMobile ? '1px solid rgba(201,162,75,.2)' : 'none', overflowY: isMobile ? 'visible' : 'auto', padding: isMobile ? '24px 18px 32px' : '30px 30px 40px' }}>
           {step === 'describe' && (
             <div style={{ animation: 'fadein .4s ease' }}>
               <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 30, margin: '0 0 10px' }}>Tell us their story.</h2>
@@ -232,16 +236,16 @@ export default function Studio({ onBack }) {
       </div>
 
       {/* Blazon bar — always visible */}
-      <div style={{ flex: 'none', background: '#0A0D14', borderTop: '1.5px solid #C9A24B', padding: '16px 28px', display: 'flex', alignItems: 'center', gap: 20 }}>
+      <div style={{ flex: 'none', background: '#0A0D14', borderTop: '1.5px solid #C9A24B', padding: isMobile ? '14px 16px' : '16px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
-          <span title="The blazon is the formal description your arms are built from — the source of truth." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif" }}>i</span>
+          <span title="The blazon is the formal description your arms are built from — the source of truth." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif", flex: 'none' }}>i</span>
           <LangToggle value={lang} onFormal={() => setLang('formal')} onPlain={() => setLang('plain')} plainLabel="Plain English" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {design
             ? (lang === 'formal'
-              ? <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontWeight: 600, fontSize: 24, color: '#ECE6D8' }}>{blazon(design, 'formal')}</span>
-              : <span style={{ fontSize: 17, color: 'rgba(236,230,216,.82)' }}>{blazon(design, 'plain')}</span>)
+              ? <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontWeight: 600, fontSize: isMobile ? 18 : 24, color: '#ECE6D8' }}>{blazon(design, 'formal')}</span>
+              : <span style={{ fontSize: isMobile ? 15 : 17, color: 'rgba(236,230,216,.82)' }}>{blazon(design, 'plain')}</span>)
             : <span style={{ fontSize: 15, color: 'rgba(236,230,216,.4)', fontStyle: 'italic' }}>Your blazon will be written here as you design.</span>}
         </div>
         <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? '#C9A24B' : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
