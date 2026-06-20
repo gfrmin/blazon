@@ -25,6 +25,7 @@ export {
   categoryOf, validAttitudesFor, defaultAttitudeFor, attitudeValid, chargeNoun, chargePlain,
 } from './model/charges.js';
 export { HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal } from './model/achievement.js';
+export * from './model/coat.js'; // selectors + immutable mutators (single home for AST edits)
 export { blazon } from './model/blazon.js';
 export { computeWarn } from './model/validate.js';
 export { toDrawShieldBlazon, drawShieldURL } from './model/drawshield.js';
@@ -65,14 +66,18 @@ export const HERO_INITIAL = {
 // ── Gifter presets ───────────────────────────────────────────────────────────
 // PROTOTYPE ONLY. In production, replace generation with a Claude API call
 // (claude-sonnet-4-6) that returns a design object and self-validates against
-// the tincture rule (spec §6.1). These canned results keep the prototype real.
+// the tincture rule (spec §6.1). Authored as canonical Coats (the flat shape no
+// longer appears in the data layer; `normalize()` remains only for legacy input).
+const primaryOrdinary = (key, tincture) => ({ role: 'primary', number: 1, tincture, object: { kind: 'ordinary', key } });
+const secondaryCharge = (key, tincture, number) => ({ role: 'secondary', number, tincture, object: { kind: 'charge', key } });
+
 export const PRESETS = [
   {
     chip: 'Scottish · stars · the steady matriarch',
     desc: 'My grandmother was from the Highlands of Scotland. She loved astronomy and the night sky, and she was the steady one who held the whole family together.',
     design: {
-      field: 'Azure', ordinary: 'saltire', ordinaryTincture: 'Argent',
-      charges: [{ type: 'mullet', tincture: 'Or', qty: 2 }],
+      field: { tincture: 'Azure' },
+      charges: [primaryOrdinary('saltire', 'Argent'), secondaryCharge('mullet', 'Or', 2)],
       motto: 'Steadfast through the dark',
       rationale: {
         field: 'Azure — the deep blue of a clear Highland night.',
@@ -85,8 +90,8 @@ export const PRESETS = [
     chip: 'A builder · patient, dependable hands',
     desc: 'My dad spent his life building homes with his own hands. Patient, dependable, never flashy — the person everyone in the family leaned on.',
     design: {
-      field: 'Vert', ordinary: 'chevron', ordinaryTincture: 'Or',
-      charges: [{ type: 'roundel', tincture: 'Argent', qty: 3 }],
+      field: { tincture: 'Vert' },
+      charges: [primaryOrdinary('chevron', 'Or'), secondaryCharge('roundel', 'Argent', 3)],
       motto: 'By patient hands',
       rationale: {
         field: 'Vert — green for growth and the steady, living work of building.',
@@ -99,8 +104,8 @@ export const PRESETS = [
     chip: 'Bold · a long military line',
     desc: 'Our family has a long military tradition, three generations of soldiers. Bold, fierce, and proud of where we come from.',
     design: {
-      field: 'Gules', ordinary: 'cross', ordinaryTincture: 'Or',
-      charges: [{ type: 'mullet', tincture: 'Argent', qty: 1 }],
+      field: { tincture: 'Gules' },
+      charges: [primaryOrdinary('cross', 'Or'), secondaryCharge('mullet', 'Argent', 1)],
       motto: 'Without fear',
       rationale: {
         field: 'Gules — red, the colour of courage and long service.',

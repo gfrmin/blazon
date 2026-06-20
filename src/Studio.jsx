@@ -1,10 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import Shield from './Shield.jsx';
-import { Swatch, Pill, LangToggle } from './ui.jsx';
+import Shield, { canRenderLocally } from './Shield.jsx';
+import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
-  TINCTURES, TINCTURE_ORDER, ORDINARY_ORDER, CHARGE_ORDER, CHARGES,
-  blazon, computeWarn, cap, PRESETS, pickPreset,
+  TINCTURES, TINCTURE_ORDER, FURS, STAINS,
+  DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
+  CHARGES, CHARGE_ORDER, ATTITUDES, validAttitudesFor,
+  blazon, computeWarn, cap, PRESETS, pickPreset, drawShieldURL,
+  // Coat selectors + mutators (the single home for AST edits)
+  fieldTincture, isDivided, division, primaryGroup, chargeGroup,
+  setFieldTincture, setDivision, clearDivision, setDivisionPart, setDivisionLine,
+  setOrdinary, clearOrdinary, setOrdinaryTincture, setOrdinaryLine,
+  setCharge, clearCharge, setChargeTincture, setChargeAttitude, setChargeNumber, setArrangement,
+  setMotto,
 } from './heraldry.js';
 
 const LOGO = (
@@ -16,21 +24,32 @@ const LOGO = (
 
 const SHIELD_OUTLINE = 'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
 
+// Option groups derived from the model tables (single source of truth — no
+// hard-coded heraldic vocabulary lives in this component).
+const FUR_STAIN = [...FURS, ...STAINS];
+const MORE_STRUCTURES = ['pile', ...Object.keys(SUBORDINARIES)];
+const CHARGE_CATEGORIES = ['beast', 'bird', 'fish', 'object', 'flora'];
+const CHARGES_BY_CATEGORY = CHARGE_CATEGORIES
+  .map((cat) => [cat, Object.keys(CHARGES).filter((k) => CHARGES[k].category === cat)])
+  .filter(([, keys]) => keys.length);
+const ARRANGEMENTS = ['in pale', 'in fess', 'in chief'];
+
 export default function Studio({ onBack }) {
   const isMobile = useMediaQuery('(max-width: 820px)');
   const [step, setStep] = useState('describe'); // 'describe' | 'design'
   const [desc, setDesc] = useState('');
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [design, setDesign] = useState(null);
-  const [lang, setLang] = useState('plain'); // Gifter default = plain English
+  const [design, setDesign] = useState(null); // a Coat AST
+  const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
+  const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
   const timer = useRef(null);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
-  // ── Generation. PROTOTYPE: simulated delay + canned preset. In production
-  //    this is the Claude API call (spec §6.1) returning a validated design. ──
+  // ── Generation. PROTOTYPE: simulated delay + canned preset (now a Coat). In
+  //    production this is the Claude API call (spec §6.1) returning a Coat. ──
   const generate = () => {
     if (generating) return;
     setGenerating(true);
@@ -44,16 +63,8 @@ export default function Studio({ onBack }) {
   };
   const restart = () => { setStep('describe'); setDesign(null); setDesc(''); setSelectedPreset(null); };
 
-  // ── Element swaps (pure client-side, immutable; <200ms, no spinner) ──
-  const patch = (fn) => setDesign((d) => fn({ ...d }));
-  const setField = (n) => patch((d) => ({ ...d, field: n }));
-  const setOrdinaryTincture = (n) => patch((d) => ({ ...d, ordinaryTincture: n }));
-  const setOrdinaryType = (k) => patch((d) => ({ ...d, ordinary: k }));
-  const setChargeTincture = (n) => patch((d) => ({ ...d, charges: [{ ...d.charges[0], tincture: n }] }));
-  const setChargeType = (k) => patch((d) => ({ ...d, charges: [{ ...d.charges[0], type: k }] }));
-  const incQty = () => patch((d) => ({ ...d, charges: [{ ...d.charges[0], qty: Math.min(3, (d.charges[0].qty || 1) + 1) }] }));
-  const decQty = () => patch((d) => ({ ...d, charges: [{ ...d.charges[0], qty: Math.max(1, (d.charges[0].qty || 1) - 1) }] }));
-  const setMotto = (v) => patch((d) => ({ ...d, motto: v }));
+  // Every edit funnels through a coat.js mutator — one code path, immutable.
+  const apply = (fn, ...args) => setDesign((d) => fn(d, ...args));
 
   const copyBlazon = () => {
     navigator.clipboard?.writeText(blazon(design, 'formal')).catch(() => {});
@@ -61,17 +72,33 @@ export default function Studio({ onBack }) {
     setTimeout(() => setCopied(false), 1600);
   };
 
+  const formal = design ? blazon(design, 'formal') : '';
+  const local = design ? canRenderLocally(design) : true;
+
+  // Debounced DrawShield fallback: only for the settled, non-local design — the
+  // public API is rate-limited, so never fetch on every swap.
+  useEffect(() => {
+    if (!design || local) { setDsUrl(null); return undefined; }
+    setDsUrl(null);
+    const t = setTimeout(() => setDsUrl(drawShieldURL(design, { size: 600 })), 600);
+    return () => clearTimeout(t);
+  }, [formal, local, design]);
+
   const warn = computeWarn(design);
-  const hasCharge = design && design.charges.length > 0;
-  const ch = hasCharge ? design.charges[0] : null;
+  const struct = design ? primaryGroup(design) : null;
+  const chg = design ? chargeGroup(design) : null;
+  const div = design ? division(design) : null;
+  const divided = design ? isDivided(design) : false;
 
   const cardStyle = { background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 12, padding: 18, marginBottom: 14 };
   const cardTag = { fontSize: 12, letterSpacing: '1.5px', color: 'rgba(201,162,75,.8)', fontWeight: 600 };
   const rationale = { fontSize: 13, color: 'rgba(236,230,216,.62)', lineHeight: 1.5, margin: '0 0 13px' };
+  const value = { fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 15, color: '#ECE6D8' };
+  const pillRow = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 };
 
-  const SwatchRow = ({ active, onPick }) => (
+  const Swatches = ({ names, active, onPick }) => (
     <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-      {TINCTURE_ORDER.map((name) => (
+      {names.map((name) => (
         <Swatch key={name} hex={TINCTURES[name].hex} active={name === active} title={`${name} (${TINCTURES[name].plain})`} onClick={() => onPick(name)} />
       ))}
     </div>
@@ -88,7 +115,7 @@ export default function Studio({ onBack }) {
         {/* No mode selector by design: the personas (Gifter / Enthusiast / Serious) are an
             internal UX-design instrument, not in-product furniture. Depth is reached through
             progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
-            "edit the blazon directly") — never a self-classification switch on arrival. */}
+            the per-card "more…" reveals) — never a self-classification switch on arrival. */}
         <div style={{ display: 'flex', gap: 10 }}>
           <button style={{ background: 'transparent', color: '#ECE6D8', border: '1px solid rgba(201,162,75,.35)', padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer' }}>Save</button>
           <button style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Export</button>
@@ -117,7 +144,20 @@ export default function Studio({ onBack }) {
 
           {!generating && design && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', animation: 'fadein .5s ease' }}>
-              <div style={{ width: isMobile ? 188 : 300 }}><Shield design={design} /></div>
+              <div style={{ width: isMobile ? 188 : 300 }}>
+                {local ? (
+                  <Shield design={design} />
+                ) : dsUrl ? (
+                  <img src={dsUrl} alt={formal} style={{ width: '100%', display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }} />
+                ) : (
+                  <div style={{ height: isMobile ? 226 : 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: 36, height: 36, border: '3px solid rgba(201,162,75,.25)', borderTopColor: '#C9A24B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                  </div>
+                )}
+              </div>
+              {!local && dsUrl && (
+                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>rendered via DrawShield</div>
+              )}
               {design.motto && design.motto.trim() && (
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: '#C9A24B', marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
               )}
@@ -154,7 +194,7 @@ export default function Studio({ onBack }) {
                 <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 28, margin: 0 }}>Here's what we made.</h2>
                 <button onClick={restart} style={{ background: 'transparent', border: 'none', color: '#C9A24B', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Start over</button>
               </div>
-              <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to swap a colour or shape. Nothing here needs a single heraldic term.</p>
+              <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to swap a colour or shape. Open “more…” when you want to go deeper — nothing here needs a single heraldic term to start.</p>
 
               {warn && (
                 <div style={{ background: 'rgba(178,58,58,.16)', border: '1px solid #B23A3A', borderRadius: 10, padding: '13px 15px', marginBottom: 18, display: 'flex', gap: 11, alignItems: 'flex-start' }}>
@@ -163,64 +203,161 @@ export default function Studio({ onBack }) {
                 </div>
               )}
 
-              {/* Field */}
+              {/* ── Field ── */}
               <div style={cardStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={cardTag}>THE FIELD · COLOUR</span>
-                  <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 15, color: '#ECE6D8' }}>{design.field}</span>
+                  <span style={cardTag}>THE FIELD</span>
+                  <span style={value}>{divided ? cap(div.type) : fieldTincture(design)}</span>
                 </div>
-                <p style={rationale}>{design.rationale.field}</p>
-                <SwatchRow active={design.field} onPick={setField} />
+                <p style={rationale}>{design.rationale?.field}</p>
+
+                {!divided ? (
+                  <>
+                    <Swatches names={TINCTURE_ORDER} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, t)} />
+                    <div style={{ marginTop: 13 }}>
+                      <Disclosure label="More colours — furs">
+                        <Swatches names={FUR_STAIN} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, t)} />
+                      </Disclosure>
+                    </div>
+                    <div style={{ marginTop: 11 }}>
+                      <Disclosure label="Divide the field">
+                        <div style={pillRow}>
+                          {DIVISION_ORDER.map((k) => (
+                            <Pill key={k} active={false} onClick={() => apply(setDivision, k)}>{cap(k)}</Pill>
+                          ))}
+                        </div>
+                      </Disclosure>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={pillRow}>
+                      {DIVISION_ORDER.map((k) => (
+                        <Pill key={k} active={k === div.type} onClick={() => apply(setDivision, k)}>{cap(k)}</Pill>
+                      ))}
+                      <Pill active={false} onClick={() => apply(clearDivision)}>Plain field</Pill>
+                    </div>
+                    <SubLabel>First colour</SubLabel>
+                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[0]} onPick={(t) => apply(setDivisionPart, 0, t)} />
+                    <SubLabel style={{ marginTop: 12 }}>Second colour</SubLabel>
+                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[1]} onPick={(t) => apply(setDivisionPart, 1, t)} />
+                    <div style={{ marginTop: 13 }}>
+                      <Disclosure label="Edge style">
+                        <div style={{ ...pillRow, marginBottom: 0 }}>
+                          {LINE_ORDER.map((k) => (
+                            <Pill key={k} active={(div.line || 'straight') === k} onClick={() => apply(setDivisionLine, k)}>{cap(k)}</Pill>
+                          ))}
+                        </div>
+                      </Disclosure>
+                    </div>
+                  </>
+                )}
               </div>
 
-              {/* Structure */}
+              {/* ── Structure ── */}
               <div style={cardStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={cardTag}>THE STRUCTURE</span>
-                  <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 15, color: '#ECE6D8' }}>{cap(design.ordinary)}</span>
+                  <span style={value}>{struct ? cap(struct.object.key) : 'None'}</span>
                 </div>
-                <p style={rationale}>{design.rationale.ordinary}</p>
-                <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 }}>
+                <p style={rationale}>{design.rationale?.ordinary}</p>
+                <div style={pillRow}>
                   {ORDINARY_ORDER.map((k) => (
-                    <Pill key={k} active={k === design.ordinary} onClick={() => setOrdinaryType(k)}>{cap(k)}</Pill>
+                    <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, k)}>{cap(k)}</Pill>
                   ))}
                 </div>
-                <div style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)', marginBottom: 8 }}>Its colour</div>
-                <SwatchRow active={design.ordinaryTincture} onPick={setOrdinaryTincture} />
+                <Disclosure label="More structures">
+                  <div style={pillRow}>
+                    {MORE_STRUCTURES.map((k) => (
+                      <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, k)}>{cap(k)}</Pill>
+                    ))}
+                    <Pill active={!struct} onClick={() => apply(clearOrdinary)}>None</Pill>
+                  </div>
+                </Disclosure>
+                {struct && (
+                  <>
+                    <div style={{ margin: '12px 0' }}>
+                      <Disclosure label="Edge style">
+                        <div style={{ ...pillRow, marginBottom: 0 }}>
+                          {LINE_ORDER.map((k) => (
+                            <Pill key={k} active={(struct.object.line || 'straight') === k} onClick={() => apply(setOrdinaryLine, k)}>{cap(k)}</Pill>
+                          ))}
+                        </div>
+                      </Disclosure>
+                    </div>
+                    <SubLabel>Its colour</SubLabel>
+                    <Swatches names={TINCTURE_ORDER} active={struct.tincture} onPick={(t) => apply(setOrdinaryTincture, t)} />
+                  </>
+                )}
               </div>
 
-              {/* Symbol */}
-              {hasCharge && (
-                <div style={cardStyle}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <span style={cardTag}>THE SYMBOL</span>
-                    <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 15, color: '#ECE6D8' }}>{CHARGES[ch.type].label}</span>
-                  </div>
-                  <p style={rationale}>{design.rationale.charges}</p>
-                  <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 }}>
-                    {CHARGE_ORDER.map((k) => (
-                      <Pill key={k} active={k === ch.type} onClick={() => setChargeType(k)}>{CHARGES[k].label}</Pill>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 13 }}>
-                    <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)' }}>How many</span>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#16273E', borderRadius: 8, padding: '5px 6px' }}>
-                      <button onClick={decQty} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
-                      <span style={{ fontSize: 15, minWidth: 14, textAlign: 'center', fontWeight: 600 }}>{ch.qty}</span>
-                      <button onClick={incQty} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)', marginBottom: 8 }}>Its colour</div>
-                  <SwatchRow active={ch.tincture} onPick={setChargeTincture} />
+              {/* ── Symbol ── */}
+              <div style={cardStyle}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={cardTag}>THE SYMBOL</span>
+                  <span style={value}>{chg ? CHARGES[chg.object.key].label : 'None'}</span>
                 </div>
-              )}
+                <p style={rationale}>{design.rationale?.charges}</p>
+                <div style={pillRow}>
+                  {CHARGE_ORDER.map((k) => (
+                    <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                  ))}
+                </div>
+                <Disclosure label="More symbols">
+                  {CHARGES_BY_CATEGORY.map(([catName, keys]) => (
+                    <div key={catName} style={{ marginBottom: 10 }}>
+                      <SubLabel style={{ marginBottom: 6, textTransform: 'capitalize' }}>{catName}</SubLabel>
+                      <div style={{ ...pillRow, marginBottom: 0 }}>
+                        {keys.map((k) => (
+                          <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  <Pill active={!chg} onClick={() => apply(clearCharge)}>None</Pill>
+                </Disclosure>
 
-              {/* Motto */}
+                {chg && (
+                  <>
+                    {validAttitudesFor(chg.object.key).length > 0 && (
+                      <div style={{ marginTop: 13 }}>
+                        <SubLabel>Posture</SubLabel>
+                        <div style={pillRow}>
+                          {validAttitudesFor(chg.object.key).map((a) => (
+                            <Pill key={a} active={chg.object.attitude === a} onClick={() => apply(setChargeAttitude, a)} title={ATTITUDES[a]?.plain}>{a}</Pill>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '6px 0 13px' }}>
+                      <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)' }}>How many</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#16273E', borderRadius: 8, padding: '5px 6px' }}>
+                        <button onClick={() => apply(setChargeNumber, (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
+                        <span style={{ fontSize: 15, minWidth: 14, textAlign: 'center', fontWeight: 600 }}>{chg.number}</span>
+                        <button onClick={() => apply(setChargeNumber, (chg.number || 1) + 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
+                      </div>
+                    </div>
+                    {(chg.number || 1) > 1 && (
+                      <Disclosure label="Arrangement">
+                        <div style={{ ...pillRow, marginBottom: 0 }}>
+                          {ARRANGEMENTS.map((a) => (
+                            <Pill key={a} active={chg.arrangement === a} onClick={() => apply(setArrangement, chg.arrangement === a ? null : a)}>{a}</Pill>
+                          ))}
+                        </div>
+                      </Disclosure>
+                    )}
+                    <SubLabel style={{ marginTop: 13 }}>Its colour</SubLabel>
+                    <Swatches names={TINCTURE_ORDER} active={chg.tincture} onPick={(t) => apply(setChargeTincture, t)} />
+                  </>
+                )}
+              </div>
+
+              {/* ── Motto ── */}
               <div style={{ background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 12, padding: 18 }}>
                 <div style={{ ...cardTag, marginBottom: 11 }}>THE MOTTO</div>
                 <input
                   value={design.motto || ''}
-                  onChange={(e) => setMotto(e.target.value)}
+                  onChange={(e) => apply(setMotto, e.target.value)}
                   placeholder="A few words they lived by…"
                   style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(201,162,75,.3)', padding: '6px 2px', color: '#ECE6D8', fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19 }}
                 />

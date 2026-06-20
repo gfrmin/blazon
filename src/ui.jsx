@@ -49,6 +49,34 @@ export function Pill({ active, children, onClick }) {
   );
 }
 
+// A small dimmed sub-label ("Its colour", "How many"…) used inside cards.
+export function SubLabel({ children, style }) {
+  return <div style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)', marginBottom: 8, ...style }}>{children}</div>;
+}
+
+// A "more…" disclosure: a labelled toggle that reveals its children on demand.
+// The one place progressive disclosure is implemented — reused by every card so
+// depth is reached in context, never via a mode switch.
+export function Disclosure({ label, openLabel, children, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          background: 'none', border: 'none', color: 'rgba(201,162,75,.85)', fontSize: 12,
+          cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6,
+          fontWeight: 600, letterSpacing: '.3px',
+        }}
+      >
+        <span style={{ fontSize: 13, lineHeight: 1, width: 10, textAlign: 'center' }}>{open ? '−' : '+'}</span>
+        {open && openLabel ? openLabel : label}
+      </button>
+      {open && <div style={{ marginTop: 10 }}>{children}</div>}
+    </div>
+  );
+}
+
 // The two-tab language toggle used by both blazon bars.
 export function LangToggle({ value, onFormal, onPlain, plainLabel = 'Plain' }) {
   const btn = (on) => ({
