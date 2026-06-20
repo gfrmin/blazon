@@ -33,7 +33,8 @@ Two surfaces, both implemented and interactive:
 
 | File | Responsibility |
 |---|---|
-| `src/heraldry.js` | **The model + grammar engine.** Tinctures, ordinaries, charges, the `blazon()` derivation (formal + plain), `computeWarn()` tincture-rule validation, the `contrastPool`/`pickContrast` engine, hero cycling sets, and the Gifter presets. **Pure, framework-free — start here.** |
+| `src/model/` | **The model + grammar engine** (a complete blazon AST). `tinctures.js` (metals/colours/**furs**/proper/stains + the tincture rule), `field.js` (divisions + lines of partition), `ordinaries.js` (ordinaries + diminutives + subordinaries), `charges.js` (charge library + **attitudes**), `achievement.js` (full achievement + `normalize()`), `blazon.js` (recursive formal+plain serializer), `validate.js` (`computeWarn`), `drawshield.js` (render bridge). **Pure, framework-free — start here.** |
+| `src/heraldry.js` | Public **barrel** re-exporting `model/*` under the names the app uses, plus the app-specific helpers (`contrastPool`/`pickContrast`, hero cycling sets, Gifter `PRESETS`). |
 | `src/Shield.jsx` | The shield as an SVG React component (geometric ordinaries + charges, interactive zones, breathing-hint + change animations, `aria-label` = the formal blazon). |
 | `src/ui.jsx` | Small shared controls: `HoverBtn`, `Swatch`, `Pill`, `LangToggle`. |
 | `src/Landing.jsx` / `src/Studio.jsx` | The two surfaces. |
@@ -54,19 +55,30 @@ Two surfaces, both implemented and interactive:
 
 ## The data model (source of truth)
 
+The canonical AST is a **`Coat`** — a single shield, or a `marshalling` of several:
+
 ```js
 {
-  field: 'Azure',                 // a tincture name
-  ordinary: 'saltire',            // saltire | cross | fess | pale | bend | chevron
-  ordinaryTincture: 'Argent',
-  charges: [{ type: 'mullet', tincture: 'Or', qty: 2 }],  // 0 or 1 in this round
-  motto: 'Steadfast through the dark',
-  rationale: { field, ordinary, charges },  // friendly copy shown on cards
+  field: {
+    tincture: 'Azure',                          // OR a division:
+    division: { type: 'per fess', line: 'wavy', tinctures: ['Azure', 'Or'], count },
+  },
+  charges: [                                    // ordered by precedence (= blazon order)
+    { role: 'primary',   number: 1, tincture: 'Or',
+      object: { kind: 'ordinary', key: 'chevron', line, cotised } },
+    { role: 'secondary', number: 3, tincture: 'Argent',
+      object: { kind: 'charge', key: 'mullet', attitude }, arrangement, on },
+  ],
+  marshalling: { type: 'quarterly' | 'impaled', parts: [ /* Coat[] */ ] },
+  motto, rationale,
 }
 ```
 
-`blazon(design, 'formal' | 'plain')` derives the text. The shield renders purely
-from this object. Both are stateless — store the object, derive everything else.
+`blazon(design, 'formal' | 'plain')` derives the text and `computeWarn(design)`
+validates the tincture rule — both **accept the legacy flat object too** (via
+`normalize()`), so older code keeps working. The shield renders purely from the
+object; everything is stateless — store the `Coat`, derive the rest. The three
+personas are different progressive-disclosure *views* over this one AST.
 
 ## Production TODO (stubbed here)
 
@@ -77,10 +89,18 @@ from this object. Both are stateless — store the object, derive everything els
   validated design object — see `design-reference/blazon-app-spec.md` §6.1 for the exact contract.
 - Tincture-rule validation (`computeWarn`) is already a deterministic rules
   engine and can stay client-side (cheaper/faster than an AI call).
-- Not built this round: Enthusiast mode, Serious-mode blazon editor/parser,
-  Gallery/Library, the full Gift checkout + A3 certificate, real charge SVG
-  library (animals/objects via DrawShield or commissioned assets), exports
-  (SVG/PNG/PDF). See `design-reference/blazon-app-spec.md` for the complete spec.
+- The **heraldic model is now complete** (a full-achievement blazon AST — divisions,
+  furs, lines of partition, ordinaries/diminutives/subordinaries, charge attitudes,
+  marshalling). The **SVG renderer grows incrementally**: `Shield.jsx` draws the
+  simple tiers (and divided fields) today and defers the rest to DrawShield
+  (`drawShieldURL()`) until a custom renderer catches up.
+- Mode UI: the persona names (Gifter / Enthusiast / Serious) are an **internal
+  UX-design instrument**, never an in-product toggle. Depth is reached through
+  **progressive disclosure** over the one AST, not a self-classification switch.
+- Not built yet: the deeper-tier builder/editor UIs (charge picker, blazon editor),
+  Gallery/Library, the full Gift checkout + A3 certificate, real charge SVG art
+  (animals/objects via DrawShield or commissioned assets), exports (SVG/PNG/PDF).
+  See `design-reference/blazon-app-spec.md` for the complete spec.
 
 ## Deploy
 

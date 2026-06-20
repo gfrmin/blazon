@@ -1,111 +1,37 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Blazon — heraldic data model and grammar engine.
+// Blazon — heraldic model & grammar engine (public barrel).
 //
-// The "design object" is the source of truth (a small AST). The UI is a view
-// over it. Both the formal blazon ("Gules, a chevron Or between three mullets
-// argent") and the plain-English translation are DERIVED from it, never stored
-// separately in the prototype. In production, the AI returns both strings too
-// (see blazon-app-spec.md §6.1) — keep them, but this engine is the fallback /
-// client-side renderer.
+// The model now lives in ./model/* as a complete blazon AST (field/divisions/
+// furs, ordinaries+diminutives+subordinaries, charges+attitudes, marshalling,
+// and the external achievement). This file re-exports it under the names the
+// app already uses, so the components keep working unchanged, and adds the
+// app-specific helpers that aren't part of the core grammar (the contrast
+// engine, the landing hero cycling sets, and the Gifter presets).
 //
-// Design object shape:
-//   {
-//     field: 'Azure',                // a tincture name
-//     ordinary: 'saltire',           // an ordinary key
-//     ordinaryTincture: 'Argent',    // a tincture name
-//     charges: [{ type:'mullet', tincture:'Or', qty:2 }],  // 0 or 1 in this round
-//     motto: 'Steadfast through the dark',
-//     rationale: { field:'…', ordinary:'…', charges:'…' }, // friendly copy
-//   }
+// The design object is the source of truth; blazon() and computeWarn() accept
+// BOTH the legacy flat object and the richer Coat AST (see ./model/achievement).
 // ─────────────────────────────────────────────────────────────────────────
 
-// The tinctures ARE the palette (UI chrome is derived from them — see Shield + components).
-export const TINCTURES = {
-  Or:      { hex: '#D4AF52', plain: 'gold',   cls: 'metal'  },
-  Argent:  { hex: '#E7E1D3', plain: 'silver', cls: 'metal'  },
-  Gules:   { hex: '#9F2C2C', plain: 'red',    cls: 'colour' },
-  Azure:   { hex: '#1F4E7A', plain: 'blue',   cls: 'colour' },
-  Sable:   { hex: '#15151C', plain: 'black',  cls: 'colour' },
-  Vert:    { hex: '#2E5A3E', plain: 'green',  cls: 'colour' },
-  Purpure: { hex: '#5A3A6B', plain: 'purple', cls: 'colour' },
-};
-export const TINCTURE_ORDER = ['Or', 'Argent', 'Gules', 'Azure', 'Sable', 'Vert', 'Purpure'];
+// ── Core model (re-exported) ────────────────────────────────────────────────
+export {
+  TINCTURES, TINCTURE_ORDER, METALS, COLOURS, FURS, STAINS, PROPER, cap,
+  tinctureClass, contrastClass, isMetal, isColour,
+  tinctureFormal, tincturePlain, tinctureHex,
+} from './model/tinctures.js';
+export { LINES, LINE_ORDER, DIVISIONS, DIVISION_ORDER, TREATMENTS } from './model/field.js';
+export { ORDINARIES, ORDINARY_ORDER, DIMINUTIVES, SUBORDINARIES, ordinaryNoun } from './model/ordinaries.js';
+export {
+  CHARGES, CHARGE_ORDER, ATTITUDES,
+  categoryOf, validAttitudesFor, defaultAttitudeFor, attitudeValid, chargeNoun, chargePlain,
+} from './model/charges.js';
+export { HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal } from './model/achievement.js';
+export { blazon } from './model/blazon.js';
+export { computeWarn } from './model/validate.js';
+export { toDrawShieldBlazon, drawShieldURL } from './model/drawshield.js';
 
-// Ordinaries — `.plain` is the plain-English noun WITHOUT a leading article
-// (the article is added by blazon() so "with a gold chevron" reads correctly).
-export const ORDINARIES = {
-  saltire: { plain: 'diagonal cross' },
-  cross:   { plain: 'cross' },
-  fess:    { plain: 'horizontal band' },
-  pale:    { plain: 'vertical band' },
-  bend:    { plain: 'diagonal band' },
-  chevron: { plain: 'chevron' },
-};
-export const ORDINARY_ORDER = ['saltire', 'cross', 'fess', 'pale', 'bend', 'chevron'];
-
-// Charges (mobile). `.label` is the friendly UI label; formal/plural terms below.
-export const CHARGES = {
-  mullet:   { label: 'Star',     formal: 'mullet',   formalPl: 'mullets',   plain: 'star',          plainPl: 'stars' },
-  crescent: { label: 'Crescent', formal: 'crescent', formalPl: 'crescents', plain: 'crescent moon', plainPl: 'crescent moons' },
-  roundel:  { label: 'Disc',     formal: 'roundel',  formalPl: 'roundels',  plain: 'disc',          plainPl: 'discs' },
-  lozenge:  { label: 'Diamond',  formal: 'lozenge',  formalPl: 'lozenges',  plain: 'diamond',       plainPl: 'diamonds' },
-};
-export const CHARGE_ORDER = ['mullet', 'crescent', 'roundel', 'lozenge'];
-
-export const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
-const numWord = (n) => ['', 'a', 'two', 'three', 'four'][n] || String(n);
-
-// ── Blazon derivation ──────────────────────────────────────────────────────
-export function blazon(d, lang) {
-  if (!d) return '';
-  if (lang === 'formal') {
-    let s = d.field + ', a ' + d.ordinary + ' ' + d.ordinaryTincture.toLowerCase();
-    if (d.charges && d.charges.length) {
-      const ch = d.charges[0];
-      const n = ch.qty || 1;
-      const term = n > 1 ? CHARGES[ch.type].formalPl : CHARGES[ch.type].formal;
-      s += ' between ' + numWord(n) + ' ' + term + ' ' + ch.tincture.toLowerCase();
-    }
-    return s;
-  }
-  // plain English
-  let s = 'A ' + TINCTURES[d.field].plain + ' shield with a ' +
-    TINCTURES[d.ordinaryTincture].plain + ' ' + ORDINARIES[d.ordinary].plain;
-  if (d.charges && d.charges.length) {
-    const ch = d.charges[0];
-    const n = ch.qty || 1;
-    const term = n > 1 ? CHARGES[ch.type].plainPl : CHARGES[ch.type].plain;
-    s += ', and ' + numWord(n) + ' ' + TINCTURES[ch.tincture].plain + ' ' + term;
-  }
-  return s + '.';
-}
-
-// ── Tincture-rule validation ───────────────────────────────────────────────
-// Metal must not sit on metal, nor colour on colour. Returns a plain-English
-// message (string) or null. Non-blocking in the UI (warning, not hard stop).
-export function computeWarn(d) {
-  if (!d) return null;
-  const fc = TINCTURES[d.field].cls;
-  const oc = TINCTURES[d.ordinaryTincture].cls;
-  if (fc === oc) {
-    const k = fc === 'metal' ? 'Metal on metal' : 'Colour on colour';
-    const fix = fc === 'metal' ? 'a colour' : 'a metal (Or or Argent)';
-    return `${k} — heralds have frowned on this for 800 years. Try ${fix} for the structure so it reads with contrast.`;
-  }
-  if (d.charges && d.charges.length) {
-    const cc = TINCTURES[d.charges[0].tincture].cls;
-    if (cc === fc) {
-      const k = fc === 'metal' ? 'Metal on metal' : 'Colour on colour';
-      return `${k} — the symbol barely shows against the field. Try the opposite class for it.`;
-    }
-  }
-  return null;
-}
+import { TINCTURES, METALS, COLOURS } from './model/tinctures.js';
 
 // ── The contrast engine (keeps generated/cycled designs tincture-rule valid) ─
-export const METALS = ['Or', 'Argent'];
-export const COLOURS = ['Gules', 'Azure', 'Vert', 'Purpure', 'Sable'];
-
 // metal field → must use a colour; colour field → must use a metal.
 export function contrastPool(field) {
   return TINCTURES[field].cls === 'metal' ? COLOURS : METALS;

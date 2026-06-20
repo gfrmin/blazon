@@ -1,5 +1,5 @@
 import React, { useId } from 'react';
-import { TINCTURES, blazon } from './heraldry.js';
+import { TINCTURES, tinctureHex, blazon } from './heraldry.js';
 
 const SHIELD_PATH =
   'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
@@ -13,6 +13,59 @@ function starPoints(cx, cy, r) {
     out.push(`${(cx + rad * Math.cos(a)).toFixed(1)},${(cy + rad * Math.sin(a)).toFixed(1)}`);
   }
   return out.join(' ');
+}
+
+// Adapt either the legacy flat design object OR a Coat AST into a small view
+// model the renderer can draw. The legacy path is unchanged (the live
+// components still emit it); the Coat path lets the deeper tiers render too.
+function toShieldView(design) {
+  if (typeof design.field === 'string') {
+    return {
+      field: { tincture: design.field },
+      ordinary: design.ordinary ? { key: design.ordinary, tincture: design.ordinaryTincture } : null,
+      charge: design.charges && design.charges[0]
+        ? { type: design.charges[0].type, tincture: design.charges[0].tincture, qty: design.charges[0].qty }
+        : null,
+    };
+  }
+  const groups = design.charges || [];
+  const prim = groups.find((g) => g.object && (g.object.kind === 'ordinary' || g.object.kind === 'subordinary'));
+  const chg = groups.find((g) => g.object && g.object.kind === 'charge');
+  return {
+    field: design.field || {},
+    ordinary: prim ? { key: prim.object.key, tincture: prim.tincture } : null,
+    charge: chg ? { type: chg.object.key, tincture: chg.tincture, qty: chg.number } : null,
+  };
+}
+
+// Overlay regions for a divided field. The base shield is filled with the first
+// tincture; these draw the second. Clipped to the shield by the parent group.
+// Geometry is approximate (renderer grows over time); repeating patterns fall
+// back to a plain field — a graceful, non-broken degrade.
+function DivisionEls({ type, tinctures }) {
+  const b = tinctureHex(tinctures && tinctures[1]);
+  switch (type) {
+    case 'per pale':    return <rect x={100} y={0} width={100} height={240} fill={b} />;
+    case 'per fess':    return <rect x={0} y={120} width={200} height={120} fill={b} />;
+    case 'quarterly':
+      return (
+        <g>
+          <rect x={100} y={0} width={100} height={120} fill={b} />
+          <rect x={0} y={120} width={100} height={120} fill={b} />
+        </g>
+      );
+    case 'per bend':       return <polygon points="0,0 0,240 200,240" fill={b} />;
+    case 'per bend sinister': return <polygon points="200,0 200,240 0,240" fill={b} />;
+    case 'per saltire':
+      return (
+        <g>
+          <polygon points="0,0 0,240 100,120" fill={b} />
+          <polygon points="200,0 200,240 100,120" fill={b} />
+        </g>
+      );
+    case 'per chevron': return <polygon points="0,240 100,140 200,240" fill={b} />;
+    default:            return null; // paly/barry/chequy/… → plain field for now
+  }
 }
 
 function OrdinaryEl({ type, hex }) {
@@ -33,13 +86,14 @@ function OrdinaryEl({ type, hex }) {
     case 'chevron':
       return <path d="M18,192 L100,108 L182,192 L182,156 L100,72 L18,156 Z" fill={hex} />;
     case 'saltire':
-    default:
       return (
         <g>
           <path d="M18,14 L48,14 L182,186 L182,226 L152,226 L18,54 Z" fill={hex} />
           <path d="M182,14 L152,14 L18,186 L18,226 L48,226 L182,54 Z" fill={hex} />
         </g>
       );
+    default:
+      return null; // un-rendered ordinary/subordinary → graceful blank (text blazon still correct)
   }
 }
 
@@ -60,15 +114,16 @@ function ChargeShape({ type, cx, cy, hex, fieldHex }) {
         <circle cx={cx + 8} cy={cy - 5} r={16} fill={fieldHex} />
       </g>
     );
-  // mullet
-  return <polygon points={starPoints(cx, cy, 22)} fill={hex} stroke="rgba(0,0,0,.18)" strokeWidth={0.6} />;
+  if (type === 'mullet')
+    return <polygon points={starPoints(cx, cy, 22)} fill={hex} stroke="rgba(0,0,0,.18)" strokeWidth={0.6} />;
+  return null; // beasts/objects without art yet → graceful blank (offload to DrawShield later)
 }
 
 /**
  * Shield renderer.
  *
  * Props:
- *  - design        the design object
+ *  - design        the design object (legacy flat object OR a Coat AST)
  *  - interactive   enable click/hover affordances (hero)
  *  - autoHint      while true, zones "breathe" (stop once the user interacts)
  *  - hoverPart     'field' | 'ord' | 'chg' | null  (controlled hover highlight)
@@ -89,9 +144,13 @@ export default function Shield({
 }) {
   const uid = useId().replace(/[:]/g, '');
   const clip = `clip-${uid}`;
-  const fieldHex = TINCTURES[design.field].hex;
-  const ordHex = TINCTURES[design.ordinaryTincture]?.hex ?? '#ECE6D8';
-  const ch = design.charges && design.charges.length ? design.charges[0] : null;
+  const view = toShieldView(design);
+  const division = view.field.division || null;
+  const baseTincture = division ? (division.tinctures && division.tinctures[0]) : view.field.tincture;
+  const fieldHex = tinctureHex(baseTincture, TINCTURES.Argent.hex);
+  const ord = view.ordinary;
+  const ordHex = ord ? tinctureHex(ord.tincture) : '#ECE6D8';
+  const ch = view.charge;
 
   const enter = (p) => (interactive && onHover ? () => onHover(p) : undefined);
   const leave = interactive && onHover ? () => onHover(null) : undefined;
@@ -131,15 +190,23 @@ export default function Shield({
       />
 
       <g clipPath={`url(#${clip})`}>
-        <g
-          key={`ord-${design.ordinary}-${design.ordinaryTincture}`}
-          onClick={interactive ? onOrdinary : undefined}
-          onMouseEnter={enter('ord')}
-          onMouseLeave={leave}
-          style={zoneStyle('ord', '.55s')}
-        >
-          <OrdinaryEl type={design.ordinary} hex={ordHex} />
-        </g>
+        {division && (
+          <g key={`div-${division.type}-${(division.tinctures || []).join('-')}`} style={{ animation: 'chgpop .45s ease' }}>
+            <DivisionEls type={division.type} tinctures={division.tinctures} />
+          </g>
+        )}
+
+        {ord && (
+          <g
+            key={`ord-${ord.key}-${ord.tincture}`}
+            onClick={interactive ? onOrdinary : undefined}
+            onMouseEnter={enter('ord')}
+            onMouseLeave={leave}
+            style={zoneStyle('ord', '.55s')}
+          >
+            <OrdinaryEl type={ord.key} hex={ordHex} />
+          </g>
+        )}
 
         {ch && (
           <g
@@ -150,7 +217,7 @@ export default function Shield({
             style={zoneStyle('chg', '1.1s')}
           >
             {chargeSlots(ch.qty || 1).map((p, i) => (
-              <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={TINCTURES[ch.tincture].hex} fieldHex={fieldHex} />
+              <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
             ))}
           </g>
         )}

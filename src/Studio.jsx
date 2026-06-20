@@ -85,13 +85,10 @@ export default function Studio({ onBack }) {
           {LOGO}
           <span style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 21 }}>Blazon</span>
         </div>
-        {!isMobile && (
-          <div style={{ display: 'flex', background: '#0C0F17', border: '1px solid rgba(201,162,75,.22)', borderRadius: 9, padding: 4, gap: 2 }}>
-            <div style={{ background: '#C9A24B', color: '#0C0F17', padding: '8px 18px', borderRadius: 6, fontSize: 13.5, fontWeight: 600 }}>Gifter</div>
-            <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Enthusiast</div>
-            <div title="Built out in this round: Gifter mode" style={{ color: 'rgba(236,230,216,.45)', padding: '8px 18px', fontSize: 13.5, cursor: 'not-allowed' }}>Serious</div>
-          </div>
-        )}
+        {/* No mode selector by design: the personas (Gifter / Enthusiast / Serious) are an
+            internal UX-design instrument, not in-product furniture. Depth is reached through
+            progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
+            "edit the blazon directly") — never a self-classification switch on arrival. */}
         <div style={{ display: 'flex', gap: 10 }}>
           <button style={{ background: 'transparent', color: '#ECE6D8', border: '1px solid rgba(201,162,75,.35)', padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer' }}>Save</button>
           <button style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Export</button>
