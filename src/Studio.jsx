@@ -43,6 +43,7 @@ export default function Studio({ onBack }) {
   const [design, setDesign] = useState(null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
   const timer = useRef(null);
 
@@ -65,6 +66,12 @@ export default function Studio({ onBack }) {
 
   // Every edit funnels through a coat.js mutator — one code path, immutable.
   const apply = (fn, ...args) => setDesign((d) => fn(d, ...args));
+
+  // Export is code-split (it pulls in react-dom/server) — load it on click only.
+  const doExport = (kind) => {
+    setExportOpen(false);
+    import('./export.js').then((m) => (kind === 'svg' ? m.downloadSVG(design) : m.downloadPNG(design)));
+  };
 
   const copyBlazon = () => {
     navigator.clipboard?.writeText(blazon(design, 'formal')).catch(() => {});
@@ -118,7 +125,21 @@ export default function Studio({ onBack }) {
             the per-card "more…" reveals) — never a self-classification switch on arrival. */}
         <div style={{ display: 'flex', gap: 10 }}>
           <button style={{ background: 'transparent', color: '#ECE6D8', border: '1px solid rgba(201,162,75,.35)', padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer' }}>Save</button>
-          <button style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: 'pointer' }}>Export</button>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => design && setExportOpen((o) => !o)}
+              style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
+            >Export ▾</button>
+            {exportOpen && design && (
+              <>
+                <div onClick={() => setExportOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />
+                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#101A2A', border: '1px solid rgba(201,162,75,.3)', borderRadius: 8, padding: 6, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 20, minWidth: 188, boxShadow: '0 10px 30px rgba(0,0,0,.5)' }}>
+                  <button onClick={() => doExport('svg')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download SVG</button>
+                  <button onClick={() => doExport('png')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download PNG · print</button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
