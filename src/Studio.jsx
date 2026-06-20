@@ -49,6 +49,7 @@ export default function Studio({ onBack }) {
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
   const turnstileRef = useRef(null);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
+  const [dsFailed, setDsFailed] = useState(false); // DrawShield img errored → degrade to local
 
   // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
   //    returns a validated Coat. Falls back to a canned preset when the API
@@ -124,9 +125,11 @@ export default function Studio({ onBack }) {
   // Debounced DrawShield fallback: only for the settled, non-local design — the
   // public API is rate-limited, so never fetch on every swap.
   useEffect(() => {
-    if (!design || local) { setDsUrl(null); return undefined; }
+    if (!design || local) { setDsUrl(null); setDsFailed(false); return undefined; }
     setDsUrl(null);
-    const t = setTimeout(() => setDsUrl(drawShieldURL(design, { size: 600 })), 600);
+    setDsFailed(false);
+    // PNG, not SVG: DrawShield serves SVG as text/xml, which <img> won't render.
+    const t = setTimeout(() => setDsUrl(drawShieldURL(design, { format: 'png', size: 600 })), 600);
     return () => clearTimeout(t);
   }, [formal, local, design]);
 
@@ -205,17 +208,17 @@ export default function Studio({ onBack }) {
           {!generating && design && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', animation: 'fadein .5s ease' }}>
               <div style={{ width: isMobile ? 188 : 300 }}>
-                {local ? (
+                {local || dsFailed ? (
                   <Shield design={design} />
                 ) : dsUrl ? (
-                  <img src={dsUrl} alt={formal} style={{ width: '100%', display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }} />
+                  <img src={dsUrl} alt={formal} onError={() => setDsFailed(true)} style={{ width: '100%', display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }} />
                 ) : (
                   <div style={{ height: isMobile ? 226 : 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ width: 36, height: 36, border: '3px solid rgba(201,162,75,.25)', borderTopColor: '#C9A24B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                   </div>
                 )}
               </div>
-              {!local && dsUrl && (
+              {!local && dsUrl && !dsFailed && (
                 <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>rendered via DrawShield</div>
               )}
               {design.motto && design.motto.trim() && (
