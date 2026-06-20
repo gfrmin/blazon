@@ -14,7 +14,14 @@ import { join, relative, dirname } from 'node:path';
 const SRC = process.argv[2] || '/tmp/ds-clone/svg/charges';
 const OUT = process.argv[3] || '/tmp/charges-r2';
 const SKIP_PATH = /(^|\/)(proper|custom|submissions)(\/|$)/;
-const SKIP_CAT = new Set(['warhammer', 'retro-scifi', 'characters', 'playing-card']); // IP / non-heraldic
+// IP / non-heraldic categories. (Note: 'game' = heraldic game animals — KEPT;
+// 'games' = chess/backgammon — skipped. 'quadrate' = crosses/compass-stars — KEPT.)
+const SKIP_CAT = new Set([
+  'warhammer', 'retro-scifi', 'characters', 'playing-card', // IP / franchise
+  'games', 'modern', 'sports', 'prehistoric',               // non-traditional
+  'shogun', 'norse',                                        // non-Western (out of V1 scope)
+  'special',
+]);
 
 function walk(d) {
   let out = [];

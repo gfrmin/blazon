@@ -17,13 +17,31 @@ import { ORDINARIES } from '../../src/model/ordinaries.js';
 import { SUBORDINARIES } from '../../src/model/ordinaries.js';
 import { DIVISION_ORDER } from '../../src/model/field.js';
 import { CHARGES, ATTITUDES } from '../../src/model/charges.js';
+import catalog from '../../src/charges/catalog.js';
 import { json } from '../_lib/http.js';
 import { verifyTurnstile } from '../_lib/turnstile.js';
 import { checkRates } from '../_lib/ratelimit.js';
 
 const TINCTURES_ENUM = [...TINCTURE_ORDER, ...FURS, 'proper'];
-const OBJECT_KEYS = [...Object.keys(ORDINARIES), ...Object.keys(SUBORDINARIES), ...Object.keys(CHARGES)];
+const ORDINARY_KEYS = [...Object.keys(ORDINARIES), ...Object.keys(SUBORDINARIES)];
 const ATTITUDE_KEYS = Object.keys(ATTITUDES);
+
+// Normalize a charge term to a catalog slug ("Oak Tree" → "oak-tree").
+const slug = (s) => String(s || '').toLowerCase().trim().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
+
+// Map Claude's charge terms onto the ~2,100-charge R2 catalog where possible, so
+// they render natively; anything unmatched stays as-is and renders via the
+// DrawShield fallback (which understands the blazon term).
+function resolveCharges(design) {
+  for (const g of design.charges || []) {
+    const o = g.object;
+    if (!o || o.kind !== 'charge') continue;
+    if (catalog[o.key] || CHARGES[o.key]) continue; // already a catalog or curated key
+    const s = slug(o.key);
+    if (catalog[s]) o.key = s;
+  }
+  return design;
+}
 
 // Abuse limits (cost backstop). Tune freely — each Claude call costs money.
 const PER_IP_PER_MIN = 5;
@@ -67,7 +85,10 @@ const DESIGN_TOOL = {
               type: 'object',
               properties: {
                 kind: { type: 'string', enum: ['ordinary', 'subordinary', 'charge'] },
-                key: { type: 'string', enum: OBJECT_KEYS },
+                key: {
+                  type: 'string',
+                  description: `Lowercase, hyphenated. For an ordinary/subordinary use one of: ${ORDINARY_KEYS.join(', ')}. For a charge, use any standard heraldic charge as a hyphenated term — e.g. lion-rampant, eagle, wolf, stag, griffin, oak-tree, escallop, anchor, rose, fleur-de-lys, sun-in-splendour, mullet, crescent, tower, sword, harp, garb, martlett. A library of ~2,000 charges is available; pick the most specific real heraldic charge.`,
+                },
                 attitude: { type: 'string', enum: ATTITUDE_KEYS },
               },
               required: ['kind', 'key'],
@@ -96,7 +117,8 @@ const SYSTEM = `You are a herald designing an authentic coat of arms from a pers
 Rules:
 - Obey the tincture rule: never place a metal charge on a metal field, nor a colour on a colour (furs and "proper" are exempt). Choose tinctures that contrast.
 - Pick tinctures, an ordinary (the primary structure), and at most one charge group that genuinely reflect the person — place, work, character, values.
-- Keep it simple and legible: one field (or one division), one ordinary, one charge group.
+- A large heraldic charge library (~2,000 charges) is available — choose the most fitting SPECIFIC charge (e.g. a stag for a hunter, a garb (wheatsheaf) for a farmer, an anchor for a sailor, a harp for Ireland, an oak-tree for endurance), not just a generic shape. Use lowercase hyphenated charge keys; for animals pick a posture variant (e.g. lion-rampant, lion-passant).
+- Keep it simple and legible: one field (or one division), one ordinary, at most one charge group.
 - Write a short motto and a warm, jargon-free one-sentence rationale for the field, the ordinary, and the charge.
 Return everything via the render_arms tool.`;
 
@@ -157,5 +179,5 @@ export async function onRequestPost(context) {
   const tool = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'render_arms');
   if (!tool || !tool.input || !tool.input.field) return json({ error: 'no_design' }, 502);
 
-  return json({ design: tool.input });
+  return json({ design: resolveCharges(tool.input) });
 }
