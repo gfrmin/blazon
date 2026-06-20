@@ -92,6 +92,15 @@ personas are different progressive-disclosure *views* over this one AST.
   `npx wrangler pages secret put ANTHROPIC_API_KEY --project-name=blazon` (until then
   the function returns 503 and the preset fallback runs). Local function dev:
   `npx wrangler pages dev dist` (after `npm run build`).
+- **Abuse protection** on `/api/generate` (it costs real money per call): the endpoint is
+  gated by **Cloudflare Turnstile** + a **KV rate-limit** (per-IP burst/day + a global daily
+  ceiling), via `functions/_lib/{turnstile,ratelimit}.js`. It **fails safe** — with no
+  `TURNSTILE_SECRET_KEY` set it returns 403 and the client falls back to presets (Claude is
+  never called unprotected). Setup: create a Turnstile widget →
+  `npx wrangler pages secret put TURNSTILE_SECRET_KEY --project-name=blazon` and set the
+  public site key as the repo **variable** `VITE_TURNSTILE_SITE_KEY`; create the rate-limit
+  KV (`npx wrangler kv namespace create RATE`) and uncomment its binding in `wrangler.toml`.
+  Accounts / payments / per-user quotas are deferred until the paid products are ready.
 - Tincture-rule validation (`computeWarn`) is a deterministic rules engine and stays
   client-side (cheaper/faster than an AI call); it re-checks whatever Claude returns.
 - **Exports** ship as SVG + print-resolution PNG with a blazon-text watermark

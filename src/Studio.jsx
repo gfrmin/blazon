@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
+import Turnstile from './components/Turnstile.jsx';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
@@ -44,6 +45,9 @@ export default function Studio({ onBack }) {
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [token, setToken] = useState(null); // Turnstile token (one-shot)
+  const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
+  const turnstileRef = useRef(null);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
 
   // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
@@ -53,19 +57,39 @@ export default function Studio({ onBack }) {
   const generate = async () => {
     if (generating) return;
     setGenerating(true);
+    setGenNotice(null);
     const started = Date.now();
     let next = null;
+    let blocked = null; // 'rate' | 'challenge' — an explicit gate, not a fallback case
     try {
       const r = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ description: desc }),
+        body: JSON.stringify({ description: desc, turnstileToken: token }),
       });
       if (r.ok) {
         const data = await r.json();
         if (data && data.design && data.design.field) next = data.design;
+      } else if (r.status === 429) {
+        blocked = 'rate';
+      } else if (r.status === 403) {
+        const e = await r.json().catch(() => ({}));
+        // failed_challenge = bad/missing token → ask to retry the check;
+        // challenge_unavailable (not configured) falls through to the preset demo.
+        if (e.error === 'failed_challenge') blocked = 'challenge';
       }
-    } catch { /* network/offline → fall through to preset */ }
+      // 503 / other → fall through to the canned-preset fallback
+    } catch { /* network/offline → preset fallback */ }
+
+    // Turnstile tokens are single-use — refresh for the next attempt.
+    turnstileRef.current?.reset();
+    setToken(null);
+
+    if (blocked) {
+      setGenerating(false);
+      setGenNotice(blocked);
+      return; // stay on the describe step; don't silently preset on an explicit block
+    }
     if (!next) {
       const p = pickPreset(desc, selectedPreset);
       next = JSON.parse(JSON.stringify(p.design));
@@ -219,7 +243,15 @@ export default function Studio({ onBack }) {
                   <button key={i} onClick={() => { setDesc(p.desc); setSelectedPreset(i); }} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
                 ))}
               </div>
-              <button onClick={generate} style={{ width: '100%', marginTop: 18, background: generating ? 'rgba(201,162,75,.5)' : '#C9A24B', color: '#0C0F17', border: 'none', padding: 15, borderRadius: 9, fontWeight: 600, fontSize: 15.5, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Design the coat of arms'}</button>
+              <Turnstile ref={turnstileRef} onToken={setToken} />
+              <button onClick={generate} style={{ width: '100%', marginTop: 14, background: generating ? 'rgba(201,162,75,.5)' : '#C9A24B', color: '#0C0F17', border: 'none', padding: 15, borderRadius: 9, fontWeight: 600, fontSize: 15.5, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Design the coat of arms'}</button>
+              {genNotice && (
+                <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
+                  {genNotice === 'rate'
+                    ? "You're generating quickly — give it a moment, then try again."
+                    : 'Please complete the verification above, then try again.'}
+                </p>
+              )}
               <p style={{ fontSize: 12, color: 'rgba(236,230,216,.45)', textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required. You can refine every choice afterwards.</p>
             </div>
           )}

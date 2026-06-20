@@ -22,6 +22,11 @@ jobs:
       - run: npm ci
 
       - run: npm run build
+        env:
+          # Public Turnstile site key (set as a repo Variable, not a Secret).
+          # Empty in prod → the widget renders nothing → the server fail-safe
+          # blocks generation and the client uses its preset fallback.
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4
