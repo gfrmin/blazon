@@ -85,16 +85,54 @@ export function attitudeValid(key, attitude) {
 
 // Charges outside the curated CHARGES table (the wider R2 catalog) have no
 // formal/plain forms — humanise the key (drop hyphens) as a reasonable blazon noun.
-const humanizeKey = (key) => key.replace(/[-_]/g, ' ');
+const humanizeKey = (key) => key.replace(/[-_]/g, ' ').trim();
+
+// A few irregular plurals common to heraldic charge names. Most charges follow
+// the regular rules below; this table covers the ones those would get wrong.
+const IRREGULAR_PL = {
+  leaf: 'leaves', wolf: 'wolves', calf: 'calves', sheaf: 'sheaves', staff: 'staves',
+  knife: 'knives', man: 'men', woman: 'women', foot: 'feet', tooth: 'teeth',
+  goose: 'geese', mouse: 'mice', ox: 'oxen', child: 'children', fish: 'fish',
+  deer: 'deer', sheep: 'sheep',
+};
+
+/** Pluralise a single English word with regular rules + a small irregular table. */
+function pluralWord(w) {
+  if (!w) return w;
+  const lower = w.toLowerCase();
+  if (IRREGULAR_PL[lower]) return IRREGULAR_PL[lower];
+  if (/(?:s|x|z|ch|sh)$/.test(lower)) return w + 'es';
+  if (/[^aeiou]y$/.test(lower)) return w.slice(0, -1) + 'ies';
+  if (/[^aeiou]o$/.test(lower)) return w + 'es'; // tomato-style; rare in charges
+  return w + 's';
+}
+
+// Heraldic charge names are often compounds joined by connectors ("sun in
+// splendour", "fleur de lys", "cross of Lorraine"). The plural inflects the HEAD
+// noun (before the connector), not the trailing word. With no connector, the last
+// word is the head ("oak tree" → "oak trees").
+const CONNECTORS = new Set(['in', 'of', 'de', 'and', 'a', 'la', 'le', 'sur', 'the', 'within', 'between', 'upon', 'over', 'du', 'des']);
+function pluralizeTerm(term) {
+  const words = term.split(/\s+/);
+  if (words.length === 1) return pluralWord(words[0]);
+  const ci = words.findIndex((w) => CONNECTORS.has(w.toLowerCase()));
+  const head = ci > 0 ? ci - 1 : words.length - 1; // word before the first connector, else the last
+  return words.map((w, i) => (i === head ? pluralWord(w) : w)).join(' ');
+}
+
+const catalogNoun = (key, plural) => {
+  const n = humanizeKey(key);
+  return plural ? pluralizeTerm(n) : n;
+};
 
 /** The blazon noun for a charge, singular or plural. */
 export function chargeNoun(key, plural = false) {
   const c = CHARGES[key];
-  if (!c) return humanizeKey(key);
+  if (!c) return catalogNoun(key, plural);
   return plural ? c.formalPl : c.formal;
 }
 export function chargePlain(key, plural = false) {
   const c = CHARGES[key];
-  if (!c) return humanizeKey(key);
+  if (!c) return catalogNoun(key, plural);
   return plural ? c.plainPl : c.plain;
 }
