@@ -82,13 +82,20 @@ personas are different progressive-disclosure *views* over this one AST.
 
 ## Production TODO (stubbed here)
 
-- **Gifter generation** is the one place that fakes AI: `Studio.jsx` `generate()`
-  runs a 1.7s timeout and returns one of three canned `PRESETS` (chosen by the
-  example chip you clicked, or a keyword match). Replace with a **Claude API**
-  call (claude-sonnet-4-6) that takes the free-text description and returns a
-  validated design object — see `design-reference/blazon-app-spec.md` §6.1 for the exact contract.
-- Tincture-rule validation (`computeWarn`) is already a deterministic rules
-  engine and can stay client-side (cheaper/faster than an AI call).
+- **Gifter generation** is now wired to a real **Claude API** call (spec §6.1):
+  the Cloudflare Pages Function `functions/api/generate.js` takes the free-text
+  description and returns a validated Coat (claude-sonnet-4-6, server-side key).
+  `Studio.jsx` `generate()` POSTs `/api/generate` and **falls back to the canned
+  `PRESETS`** when the API isn't configured/reachable (offline, local dev, no key).
+  The tool schema is enum-locked to the model's own vocabulary, so Claude can only
+  return keys the app can render/blazon. **Setup:** set the key on the Pages project —
+  `npx wrangler pages secret put ANTHROPIC_API_KEY --project-name=blazon` (until then
+  the function returns 503 and the preset fallback runs). Local function dev:
+  `npx wrangler pages dev dist` (after `npm run build`).
+- Tincture-rule validation (`computeWarn`) is a deterministic rules engine and stays
+  client-side (cheaper/faster than an AI call); it re-checks whatever Claude returns.
+- **Exports** ship as SVG + print-resolution PNG with a blazon-text watermark
+  (`src/export.js`, code-split; reuses the Shield renderer / DrawShield bridge).
 - The **heraldic model is now complete** (a full-achievement blazon AST — divisions,
   furs, lines of partition, ordinaries/diminutives/subordinaries, charge attitudes,
   marshalling). The **SVG renderer grows incrementally**: `Shield.jsx` draws the
@@ -97,9 +104,9 @@ personas are different progressive-disclosure *views* over this one AST.
 - Mode UI: the persona names (Gifter / Enthusiast / Serious) are an **internal
   UX-design instrument**, never an in-product toggle. Depth is reached through
   **progressive disclosure** over the one AST, not a self-classification switch.
-- Not built yet: the deeper-tier builder/editor UIs (charge picker, blazon editor),
-  Gallery/Library, the full Gift checkout + A3 certificate, real charge SVG art
-  (animals/objects via DrawShield or commissioned assets), exports (SVG/PNG/PDF).
+- Not built yet: the blazon text editor (Serious mode, needs a parser),
+  Gallery/Library + persistence, the full Gift checkout + A3 certificate, real charge
+  SVG art (animals/objects via DrawShield or commissioned assets), PDF export.
   See `design-reference/blazon-app-spec.md` for the complete spec.
 
 ## Deploy

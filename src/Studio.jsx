@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
@@ -45,22 +45,37 @@ export default function Studio({ onBack }) {
   const [copied, setCopied] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
-  const timer = useRef(null);
 
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  // ── Generation. PROTOTYPE: simulated delay + canned preset (now a Coat). In
-  //    production this is the Claude API call (spec §6.1) returning a Coat. ──
-  const generate = () => {
+  // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
+  //    returns a validated Coat. Falls back to a canned preset when the API
+  //    isn't reachable / configured (offline, local dev, no key) so the
+  //    experience never dead-ends. ──
+  const generate = async () => {
     if (generating) return;
     setGenerating(true);
-    timer.current = setTimeout(() => {
+    const started = Date.now();
+    let next = null;
+    try {
+      const r = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ description: desc }),
+      });
+      if (r.ok) {
+        const data = await r.json();
+        if (data && data.design && data.design.field) next = data.design;
+      }
+    } catch { /* network/offline → fall through to preset */ }
+    if (!next) {
       const p = pickPreset(desc, selectedPreset);
-      setDesign(JSON.parse(JSON.stringify(p.design)));
-      setGenerating(false);
-      setLang('plain');
-      setStep('design');
-    }, 1700);
+      next = JSON.parse(JSON.stringify(p.design));
+    }
+    const elapsed = Date.now() - started; // hold the spinner briefly so it never flashes
+    if (elapsed < 900) await new Promise((res) => setTimeout(res, 900 - elapsed));
+    setDesign(next);
+    setGenerating(false);
+    setLang('plain');
+    setStep('design');
   };
   const restart = () => { setStep('describe'); setDesign(null); setDesc(''); setSelectedPreset(null); };
 
