@@ -6,10 +6,7 @@ name = "blazon"
 compatibility_date = "2026-06-19"
 pages_build_output_dir = "dist"
 
-# Rate-limit KV for /api/generate (abuse / cost backstop). Create the namespace,
-# then uncomment and paste its id (until then the function still gates on
-# Turnstile; rate-limiting just isn't applied):
-#   npx wrangler kv namespace create RATE
-# [[kv_namespaces]]
-# binding = "RATE"
-# id = "PASTE_KV_NAMESPACE_ID_HERE"
+# Rate-limit KV for /api/generate (abuse / cost backstop).
+[[kv_namespaces]]
+binding = "RATE"
+id = "de4812ca80b3454193bb009defd3124e"
