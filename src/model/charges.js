@@ -83,14 +83,18 @@ export function attitudeValid(key, attitude) {
   return valid.includes(attitude);
 }
 
+// Charges outside the curated CHARGES table (the wider R2 catalog) have no
+// formal/plain forms — humanise the key (drop hyphens) as a reasonable blazon noun.
+const humanizeKey = (key) => key.replace(/[-_]/g, ' ');
+
 /** The blazon noun for a charge, singular or plural. */
 export function chargeNoun(key, plural = false) {
   const c = CHARGES[key];
-  if (!c) return key;
+  if (!c) return humanizeKey(key);
   return plural ? c.formalPl : c.formal;
 }
 export function chargePlain(key, plural = false) {
   const c = CHARGES[key];
-  if (!c) return key;
+  if (!c) return humanizeKey(key);
   return plural ? c.plainPl : c.plain;
 }

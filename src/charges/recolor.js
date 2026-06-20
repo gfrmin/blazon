@@ -3,13 +3,17 @@ import { recolorCharge, viewBoxOf } from './recolor-core.js';
 
 export { recolorCharge, viewBoxOf } from './recolor-core.js';
 
-// Fetch + cache the raw charge SVG (same-origin /charges/, CDN-cached).
+// The vendored charge library (GPL/CC-BY-SA, ~2,200 SVGs) lives in R2 (Cloudflare
+// object storage), CDN-cached, CORS-open — not bundled in the repo. `path` is the
+// catalog path, e.g. "lion/lion-rampant".
+export const R2_BASE = 'https://pub-b430701fd019477e916a2a94549058cf.r2.dev/charges';
+
 const cache = new Map();
-export function fetchCharge(file) {
-  if (!cache.has(file)) {
-    cache.set(file, fetch(`/charges/${file}.svg`).then((r) => (r.ok ? r.text() : null)).catch(() => null));
+export function fetchCharge(path) {
+  if (!cache.has(path)) {
+    cache.set(path, fetch(`${R2_BASE}/${path}.svg`).then((r) => (r.ok ? r.text() : null)).catch(() => null));
   }
-  return cache.get(file);
+  return cache.get(path);
 }
 
 /** Resolve a charge's recoloured art (for export, before render). */

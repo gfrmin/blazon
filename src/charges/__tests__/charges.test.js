@@ -28,17 +28,19 @@ test('viewBoxOf reads the viewBox (with fallback)', () => {
   assert.equal(viewBoxOf('<svg></svg>'), '0 0 100 100');
 });
 
-test('artFile resolves attitude → file, with default fallback', () => {
-  assert.equal(artFile('lion', 'rampant'), 'lion-rampant');
-  assert.equal(artFile('lion', 'passant guardant'), 'lion-passant-guardant');
-  assert.equal(artFile('lion', 'nonsense'), 'lion-rampant'); // unknown attitude → default
-  assert.equal(artFile('eagle'), 'eagle'); // no attitudes
-  assert.equal(artFile('martlet', 'volant'), 'martlett-volant');
-  assert.equal(artFile('nope'), null);
+test('artFile resolves a charge (+attitude) → its R2 catalog path', () => {
+  assert.equal(artFile('lion', 'rampant'), 'lion/lion-rampant');
+  assert.equal(artFile('lion', 'passant guardant'), 'lion/lion-passant-guardant');
+  assert.equal(artFile('lion', 'nonsense'), 'lion/lion-rampant'); // unknown attitude → default
+  assert.ok(artFile('eagle').endsWith('eagle'));               // curated, no attitudes
+  assert.ok(artFile('martlet', 'volant').endsWith('martlett-volant'));
+  assert.ok(artFile('fleurdelys').endsWith('fleur-de-lys'));   // model key → catalog key
+  assert.equal(artFile('definitely-not-a-charge-xyz'), null);
 });
 
-test('hasArt reflects the manifest', () => {
-  assert.equal(hasArt('lion'), true);
-  assert.equal(hasArt('fleurdelys'), true);
-  assert.equal(hasArt('mullet'), false); // geometric, drawn directly
+test('hasArt covers curated + raw catalog keys', () => {
+  assert.equal(hasArt('lion'), true);            // curated model key
+  assert.equal(hasArt('fleurdelys'), true);      // curated model key → catalog
+  assert.equal(hasArt('lion-rampant'), true);    // raw catalog key (picker)
+  assert.equal(hasArt('definitely-not-a-charge-xyz'), false);
 });

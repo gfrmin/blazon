@@ -35,7 +35,7 @@ export function canRenderLocally(design) {
     if (o.line && o.line !== 'straight') return false;
     if (o.kind === 'ordinary' && !LOCAL_ORDINARIES.includes(o.key)) return false;
     if (o.kind === 'subordinary') return false; // none drawn locally yet
-    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key)) return false;
+    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
   }
   return true;
 }
@@ -278,7 +278,11 @@ export default function Shield({
             style={zoneStyle('chg', '1.1s')}
           >
             {chargeSlots(ch.qty || 1).map((p, i) => (
-              hasArt(ch.type) ? (
+              // Geometric charges keep their crisp native shapes; everything else
+              // renders from the vendored R2 art (if available).
+              LOCAL_CHARGES.includes(ch.type) ? (
+                <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
+              ) : hasArt(ch.type, ch.attitude) ? (
                 <VendoredCharge
                   key={i}
                   file={artFile(ch.type, ch.attitude)}
@@ -288,9 +292,7 @@ export default function Shield({
                   size={chargeSize(ch.qty || 1)}
                   resolved={chargeArt ? chargeArt[artFile(ch.type, ch.attitude)] : null}
                 />
-              ) : (
-                <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
-              )
+              ) : null
             ))}
           </g>
         )}

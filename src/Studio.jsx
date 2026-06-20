@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import Turnstile from './components/Turnstile.jsx';
 import CreditsLink from './Credits.jsx';
+import { catalogKeys, humanize } from './charges/manifest.js';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
@@ -48,6 +49,7 @@ export default function Studio({ onBack }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [token, setToken] = useState(null); // Turnstile token (one-shot)
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
+  const [chargeQuery, setChargeQuery] = useState(''); // search the full charge catalog
   const turnstileRef = useRef(null);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
   const [dsFailed, setDsFailed] = useState(false); // DrawShield img errored → degrade to local
@@ -367,7 +369,7 @@ export default function Studio({ onBack }) {
               <div style={cardStyle}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={cardTag}>THE SYMBOL</span>
-                  <span style={value}>{chg ? CHARGES[chg.object.key].label : 'None'}</span>
+                  <span style={value}>{chg ? (CHARGES[chg.object.key]?.label || humanize(chg.object.key)) : 'None'}</span>
                 </div>
                 <p style={rationale}>{design.rationale?.charges}</p>
                 <div style={pillRow}>
@@ -375,18 +377,36 @@ export default function Studio({ onBack }) {
                     <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
                   ))}
                 </div>
-                <Disclosure label="More symbols">
-                  {CHARGES_BY_CATEGORY.map(([catName, keys]) => (
-                    <div key={catName} style={{ marginBottom: 10 }}>
-                      <SubLabel style={{ marginBottom: 6, textTransform: 'capitalize' }}>{catName}</SubLabel>
-                      <div style={{ ...pillRow, marginBottom: 0 }}>
-                        {keys.map((k) => (
-                          <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                <Disclosure label={`More symbols — search ${catalogKeys.length.toLocaleString()}`}>
+                  <input
+                    value={chargeQuery}
+                    onChange={(e) => setChargeQuery(e.target.value)}
+                    placeholder="Search charges — lion, ship, oak, sun, harp…"
+                    style={{ width: '100%', background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 8, padding: '9px 12px', color: '#ECE6D8', fontSize: 13.5, fontFamily: 'inherit', marginBottom: 10 }}
+                  />
+                  {chargeQuery.trim() ? (() => {
+                    const q = chargeQuery.trim().toLowerCase();
+                    const hits = catalogKeys.filter((k) => k.includes(q)).slice(0, 60);
+                    return hits.length ? (
+                      <div style={{ ...pillRow, marginBottom: 0, maxHeight: 240, overflowY: 'auto' }}>
+                        {hits.map((k) => (
+                          <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{humanize(k)}</Pill>
                         ))}
                       </div>
-                    </div>
-                  ))}
-                  <Pill active={!chg} onClick={() => apply(clearCharge)}>None</Pill>
+                    ) : <SubLabel>No charges match “{chargeQuery}”.</SubLabel>;
+                  })() : (
+                    CHARGES_BY_CATEGORY.map(([catName, keys]) => (
+                      <div key={catName} style={{ marginBottom: 10 }}>
+                        <SubLabel style={{ marginBottom: 6, textTransform: 'capitalize' }}>{catName}</SubLabel>
+                        <div style={{ ...pillRow, marginBottom: 0 }}>
+                          {keys.map((k) => (
+                            <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                  <div style={{ marginTop: 12 }}><Pill active={!chg} onClick={() => apply(clearCharge)}>None</Pill></div>
                 </Disclosure>
 
                 {chg && (
