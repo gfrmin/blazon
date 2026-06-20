@@ -1,5 +1,7 @@
 import React, { useId } from 'react';
 import { TINCTURES, tinctureHex, blazon, normalize } from './heraldry.js';
+import { hasArt, artFile } from './charges/manifest.js';
+import { useCharge } from './charges/recolor.js';
 
 const SHIELD_PATH =
   'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
@@ -33,7 +35,7 @@ export function canRenderLocally(design) {
     if (o.line && o.line !== 'straight') return false;
     if (o.kind === 'ordinary' && !LOCAL_ORDINARIES.includes(o.key)) return false;
     if (o.kind === 'subordinary') return false; // none drawn locally yet
-    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key)) return false;
+    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key)) return false;
   }
   return true;
 }
@@ -68,7 +70,7 @@ function toShieldView(design) {
   return {
     field: design.field || {},
     ordinary: prim ? { key: prim.object.key, tincture: prim.tincture } : null,
-    charge: chg ? { type: chg.object.key, tincture: chg.tincture, qty: chg.number } : null,
+    charge: chg ? { type: chg.object.key, tincture: chg.tincture, qty: chg.number, attitude: chg.object.attitude } : null,
   };
 }
 
@@ -153,6 +155,30 @@ function ChargeShape({ type, cx, cy, hex, fieldHex }) {
   return null; // beasts/objects without art yet → graceful blank (offload to DrawShield later)
 }
 
+// Box size for a vendored (figural) charge, by how many appear.
+const chargeSize = (n) => (n <= 1 ? 122 : n === 2 ? 86 : 66);
+
+// A vendored DrawShield charge, recoloured to the tincture and fitted into a slot.
+// `resolved` (pre-fetched art) is used for synchronous render (export); otherwise
+// the art is fetched on the client via the hook.
+function VendoredCharge({ file, hex, cx, cy, size, resolved }) {
+  const fetched = useCharge(resolved ? null : file, hex);
+  const art = resolved || fetched;
+  if (!art) return null;
+  return (
+    <svg
+      x={cx - size / 2}
+      y={cy - size / 2}
+      width={size}
+      height={size}
+      viewBox={art.viewBox}
+      fill={hex}
+      preserveAspectRatio="xMidYMid meet"
+      dangerouslySetInnerHTML={{ __html: art.inner }}
+    />
+  );
+}
+
 /**
  * Shield renderer.
  *
@@ -175,6 +201,7 @@ export default function Shield({
   onOrdinary,
   onCharge,
   width = '100%',
+  chargeArt = null,
 }) {
   const uid = useId().replace(/[:]/g, '');
   const clip = `clip-${uid}`;
@@ -251,7 +278,19 @@ export default function Shield({
             style={zoneStyle('chg', '1.1s')}
           >
             {chargeSlots(ch.qty || 1).map((p, i) => (
-              <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
+              hasArt(ch.type) ? (
+                <VendoredCharge
+                  key={i}
+                  file={artFile(ch.type, ch.attitude)}
+                  hex={tinctureHex(ch.tincture)}
+                  cx={p[0]}
+                  cy={p[1]}
+                  size={chargeSize(ch.qty || 1)}
+                  resolved={chargeArt ? chargeArt[artFile(ch.type, ch.attitude)] : null}
+                />
+              ) : (
+                <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
+              )
             ))}
           </g>
         )}

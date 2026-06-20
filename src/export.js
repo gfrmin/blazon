@@ -8,10 +8,12 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Shield, { canRenderLocally } from './Shield.jsx';
-import { blazon, drawShieldURL } from './heraldry.js';
+import { blazon, drawShieldURL, normalize, chargeGroup, tinctureHex } from './heraldry.js';
+import { hasArt, artFile } from './charges/manifest.js';
+import { resolveCharge } from './charges/recolor.js';
 
 const XMLNS = 'http://www.w3.org/2000/svg';
-const FOOTER_H = 30; // extra band below the 240-tall shield for the blazon mark
+const FOOTER_H = 40; // band below the 240-tall shield for the blazon + credit
 
 const escapeXML = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -21,17 +23,33 @@ function slug(design) {
   return (s || 'coat-of-arms').slice(0, 60);
 }
 
+// Pre-resolve vendored charge art (the render hook can't run under
+// renderToStaticMarkup), keyed by file so Shield renders it synchronously.
+async function resolveDesignCharges(design) {
+  const coat = normalize(design);
+  const g = coat && chargeGroup(coat);
+  if (!g || !g.object || !hasArt(g.object.key)) return null;
+  const file = artFile(g.object.key, g.object.attitude);
+  const art = await resolveCharge(file, tinctureHex(g.tincture));
+  return art ? { [file]: art } : null;
+}
+
 // A self-contained, watermarked SVG string for a locally-renderable design.
 // Renders the live Shield component to static markup (same output as on screen),
 // extends the viewBox by a footer band, and writes the formal blazon into it.
-function localSVG(design, width = 600) {
-  const markup = renderToStaticMarkup(React.createElement(Shield, { design, width }));
+async function localSVG(design, width = 600) {
+  const chargeArt = await resolveDesignCharges(design);
+  const markup = renderToStaticMarkup(React.createElement(Shield, { design, width, chargeArt }));
   // textLength + lengthAdjust force the blazon to fit the width however long it is.
-  const caption = `<text x="100" y="${240 + 19}" text-anchor="middle" textLength="184" lengthAdjust="spacingAndGlyphs" font-family="Cormorant Garamond, Georgia, serif" font-size="11" font-style="italic" fill="#C9A24B">${escapeXML(blazon(design, 'formal'))}</text>`;
+  const caption = `<text x="100" y="${240 + 17}" text-anchor="middle" textLength="184" lengthAdjust="spacingAndGlyphs" font-family="Cormorant Garamond, Georgia, serif" font-size="11" font-style="italic" fill="#C9A24B">${escapeXML(blazon(design, 'formal'))}</text>`;
+  // CC-BY-SA requires crediting the artwork when a vendored charge is present.
+  const credit = chargeArt
+    ? `<text x="100" y="${240 + 31}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="6.5" fill="#8a8674">Artwork: drawshield.net &amp; Wikimedia Commons · CC BY-SA</text>`
+    : '';
   return markup
     .replace('<svg ', `<svg xmlns="${XMLNS}" `) // React omits the namespace
     .replace('viewBox="0 0 200 240"', `viewBox="0 0 200 ${240 + FOOTER_H}"`)
-    .replace('</svg>', `${caption}</svg>`);
+    .replace('</svg>', `${caption}${credit}</svg>`);
 }
 
 const svgDoc = (svg) => `<?xml version="1.0" encoding="UTF-8"?>\n${svg}`;
@@ -71,10 +89,10 @@ function svgToPNG(svgString, widthPx = 1000) {
 }
 
 /** Download the design as an SVG file. */
-export function downloadSVG(design) {
+export async function downloadSVG(design) {
   if (!design) return;
   if (canRenderLocally(design)) {
-    downloadBlob(new Blob([svgDoc(localSVG(design))], { type: 'image/svg+xml' }), `${slug(design)}.svg`);
+    downloadBlob(new Blob([svgDoc(await localSVG(design))], { type: 'image/svg+xml' }), `${slug(design)}.svg`);
   } else {
     // Can't post-process DrawShield's SVG (cross-origin) — hand off its file directly.
     triggerDownload(drawShieldURL(design, { format: 'svg', size: 800 }), `${slug(design)}.svg`);
@@ -85,7 +103,7 @@ export function downloadSVG(design) {
 export async function downloadPNG(design) {
   if (!design) return;
   if (canRenderLocally(design)) {
-    downloadBlob(await svgToPNG(localSVG(design), 1000), `${slug(design)}.png`);
+    downloadBlob(await svgToPNG(await localSVG(design), 1000), `${slug(design)}.png`);
   } else {
     triggerDownload(drawShieldURL(design, { format: 'png', size: 1000 }), `${slug(design)}.png`);
   }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import Turnstile from './components/Turnstile.jsx';
+import CreditsLink from './Credits.jsx';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
@@ -435,6 +436,7 @@ export default function Studio({ onBack }) {
               </div>
 
               <button style={{ width: '100%', marginTop: 20, background: '#C9A24B', color: '#0C0F17', border: 'none', padding: 15, borderRadius: 9, fontWeight: 600, fontSize: 15.5, cursor: 'pointer' }}>Continue to your gift →</button>
+              <div style={{ textAlign: 'center', marginTop: 14 }}><CreditsLink style={{ fontSize: 12 }} /></div>
             </div>
           )}
         </aside>

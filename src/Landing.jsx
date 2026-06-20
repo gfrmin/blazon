@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Shield from './Shield.jsx';
+import CreditsLink from './Credits.jsx';
 import { HoverBtn, LangToggle } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import {
@@ -258,6 +259,7 @@ export default function Landing({ onOpenStudio }) {
 
       <footer style={{ borderTop: '1px solid rgba(201,162,75,.16)', padding: `28px ${PAD}px`, textAlign: 'center', color: 'rgba(236,230,216,.4)', fontSize: 13 }}>
         Blazon — the heraldic manuscript, made digital. · <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic' }}>Per fess Or and Azure</span>
+        <div style={{ marginTop: 10 }}><CreditsLink /></div>
       </footer>
     </div>
   );
