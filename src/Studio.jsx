@@ -3,8 +3,9 @@ import Shield, { canRenderLocally } from './Shield.jsx';
 import Turnstile from './components/Turnstile.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
-import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
+import { Swatch, Pill, LangToggle, Disclosure, SubLabel, HoverBtn } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
+import { C, F, goldBtn, goldBtnHover } from './theme.js';
 import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
@@ -142,10 +143,10 @@ export default function Studio({ onBack }) {
   const div = design ? division(design) : null;
   const divided = design ? isDivided(design) : false;
 
-  const cardStyle = { background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 12, padding: 18, marginBottom: 14 };
-  const cardTag = { fontSize: 12, letterSpacing: '1.5px', color: 'rgba(201,162,75,.8)', fontWeight: 600 };
-  const rationale = { fontSize: 13, color: 'rgba(236,230,216,.62)', lineHeight: 1.5, margin: '0 0 13px' };
-  const value = { fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 15, color: '#ECE6D8' };
+  const cardStyle = { background: C.ink, border: `1px solid ${C.lineMid}`, borderRadius: 12, padding: 18, marginBottom: 14 };
+  const cardTag = { fontSize: 11.5, letterSpacing: '1.6px', color: 'rgba(201,162,75,.85)', fontWeight: 600 };
+  const rationale = { fontSize: 13, color: C.muted, lineHeight: 1.5, margin: '0 0 13px' };
+  const value = { fontFamily: F.serif, fontStyle: 'italic', fontSize: 16, color: C.cream };
   const pillRow = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 };
 
   const Swatches = ({ names, active, onPick }) => (
@@ -169,11 +170,11 @@ export default function Studio({ onBack }) {
             progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
             the per-card "more…" reveals) — never a self-classification switch on arrival. */}
         <div style={{ display: 'flex', gap: 10 }}>
-          <button style={{ background: 'transparent', color: '#ECE6D8', border: '1px solid rgba(201,162,75,.35)', padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer' }}>Save</button>
+          <button style={{ background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer', fontFamily: F.sans }}>Save</button>
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => design && setExportOpen((o) => !o)}
-              style={{ background: '#C9A24B', color: '#0C0F17', border: 'none', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, fontWeight: 600, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
+              style={{ ...goldBtn, padding: '9px 18px', fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
             >Export ▾</button>
             {exportOpen && design && (
               <>
@@ -250,7 +251,7 @@ export default function Studio({ onBack }) {
                 ))}
               </div>
               <Turnstile ref={turnstileRef} onToken={setToken} />
-              <button onClick={generate} style={{ width: '100%', marginTop: 14, background: generating ? 'rgba(201,162,75,.5)' : '#C9A24B', color: '#0C0F17', border: 'none', padding: 15, borderRadius: 9, fontWeight: 600, fontSize: 15.5, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Design the coat of arms'}</button>
+              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Design the coat of arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
                   {genNotice === 'rate'
@@ -455,7 +456,14 @@ export default function Studio({ onBack }) {
                 />
               </div>
 
-              <button style={{ width: '100%', marginTop: 20, background: '#C9A24B', color: '#0C0F17', border: 'none', padding: 15, borderRadius: 9, fontWeight: 600, fontSize: 15.5, cursor: 'pointer' }}>Continue to your gift →</button>
+              {/* Conversion at the result peak — free to design; the watermark lifts on purchase */}
+              <div style={{ marginTop: 22, borderTop: `1px solid ${C.lineMid}`, paddingTop: 18 }}>
+                <p style={{ fontSize: 12, color: C.muted2, margin: '0 0 12px', letterSpacing: '.2px' }}>Free to design — the watermark lifts when you download or order a print.</p>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <HoverBtn style={{ ...goldBtn, flex: 1, padding: 14, borderRadius: 9, fontSize: 14.5, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }} hoverStyle={goldBtnHover}>Download<span style={{ fontWeight: 400, fontSize: 11, opacity: .75, marginTop: 2 }}>clean file · $19</span></HoverBtn>
+                  <button style={{ flex: 1, padding: 14, borderRadius: 9, fontWeight: 600, fontSize: 14.5, cursor: 'pointer', background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, fontFamily: F.sans, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>Order a print<span style={{ fontWeight: 400, fontSize: 11, opacity: .7, marginTop: 2 }}>framed · from $49</span></button>
+                </div>
+              </div>
               <div style={{ textAlign: 'center', marginTop: 14 }}><CreditsLink style={{ fontSize: 12 }} /></div>
             </div>
           )}
