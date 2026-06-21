@@ -105,7 +105,7 @@ export default function Landing({ onOpenStudio }) {
   return (
     <div style={{ minHeight: '100vh', backgroundImage: pageWash, backgroundAttachment: 'fixed' }}>
       {/* Header */}
-      <header style={{ position: 'sticky', top: 0, zIndex: 30, backdropFilter: 'blur(12px)', background: 'rgba(9,12,19,.74)', borderBottom: '1px solid rgba(201,162,75,.13)' }}>
+      <header style={{ position: 'sticky', top: 0, zIndex: 30, backdropFilter: 'blur(16px)', background: 'rgba(9,12,19,.92)', borderBottom: '1px solid rgba(201,162,75,.18)', boxShadow: '0 6px 24px rgba(0,0,0,.4)' }}>
         <div style={{ ...sectionWrap, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `16px ${PAD}px` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {LOGO}
@@ -124,7 +124,7 @@ export default function Landing({ onOpenStudio }) {
 
       {/* Hero */}
       <section style={{ ...sectionWrap, padding: isMobile ? `40px ${PAD}px 36px` : '70px 36px 40px', display: 'grid', gridTemplateColumns: isTablet ? '1fr' : '1.02fr .98fr', gap: isMobile ? 44 : 64, alignItems: 'center' }}>
-        <div style={isTablet ? { order: 2 } : undefined}>
+        <div style={isTablet ? { order: 1 } : undefined}>
           <div style={eyebrow}>Design a coat of arms</div>
           <h1 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 40 : 62, lineHeight: 1.02, margin: '18px 0 24px', letterSpacing: '-.5px', textWrap: 'balance' }}>
             <DropCap>E</DropCap>very family has a story worth a coat&nbsp;of&nbsp;arms.
@@ -143,7 +143,7 @@ export default function Landing({ onOpenStudio }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, ...(isTablet ? { order: 1 } : null) }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, ...(isTablet ? { order: 2 } : null) }}>
           {/* The interactive coat of arms — framed like a manuscript plate */}
           <div style={{ position: 'relative', width: '100%', maxWidth: 392, padding: '22px 22px 14px', border: `1px solid ${C.line}`, borderRadius: 14, background: 'radial-gradient(circle at 50% 40%, rgba(201,162,75,.10), rgba(15,24,38,.5) 70%)' }}>
             <FrameCorners />

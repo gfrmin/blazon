@@ -191,8 +191,9 @@ export default function Studio({ onBack }) {
 
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
-        {/* Left — live preview */}
-        <div style={{ flex: isMobile ? 'none' : 1, height: isMobile ? 320 : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+        {/* Left — live preview. On mobile during the describe step there is nothing to
+            preview yet, so the prompt (aside) leads and the empty preview follows. */}
+        <div style={{ flex: isMobile ? 'none' : 1, order: isMobile && step === 'describe' ? 2 : 1, height: isMobile ? 320 : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 20, left: 24, fontSize: 11, letterSpacing: '2.5px', color: 'rgba(201,162,75,.7)', fontWeight: 600 }}>LIVE PREVIEW</div>
 
           {!generating && !design && (
@@ -233,7 +234,7 @@ export default function Studio({ onBack }) {
         </div>
 
         {/* Right — control panel */}
-        <aside style={{ width: isMobile ? '100%' : 466, flex: 'none', background: '#0F1826', borderLeft: isMobile ? 'none' : '1px solid rgba(201,162,75,.2)', borderTop: isMobile ? '1px solid rgba(201,162,75,.2)' : 'none', overflowY: isMobile ? 'visible' : 'auto', padding: isMobile ? '24px 18px 32px' : '30px 30px 40px' }}>
+        <aside style={{ width: isMobile ? '100%' : 466, flex: 'none', order: isMobile && step === 'describe' ? 1 : 2, background: '#0F1826', borderLeft: isMobile ? 'none' : '1px solid rgba(201,162,75,.2)', borderTop: isMobile && step !== 'describe' ? '1px solid rgba(201,162,75,.2)' : 'none', overflowY: isMobile ? 'visible' : 'auto', padding: isMobile ? '24px 18px 32px' : '30px 30px 40px' }}>
           {step === 'describe' && (
             <div style={{ animation: 'fadein .4s ease' }}>
               <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 30, margin: '0 0 10px' }}>Tell us their story.</h2>
