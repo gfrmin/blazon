@@ -134,9 +134,12 @@ function OrdinaryEl({ type, hex }) {
 }
 
 function chargeSlots(n) {
-  if (n <= 1) return [[100, 60]];
-  if (n === 2) return [[60, 56], [140, 56]];
-  return [[58, 54], [142, 54], [100, 150]];
+  // Slots are lowered enough that each charge's box (size from chargeSize) clears
+  // the shield's top edge (SHIELD_PATH starts at y=14) — otherwise tall figural
+  // art gets flat-cut by the clip path.
+  if (n <= 1) return [[100, 84]];
+  if (n === 2) return [[60, 70], [140, 70]];
+  return [[58, 64], [142, 64], [100, 150]];
 }
 
 function ChargeShape({ type, cx, cy, hex, fieldHex }) {
