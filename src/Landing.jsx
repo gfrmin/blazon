@@ -28,10 +28,10 @@ const GALLERY = [
 // subscription). Free to create; pay once for the file or the framed print.
 // The developer API lives in a quiet footnote, off the consumer grid.
 const PRICING = [
-  { tier: 'Create',  price: 'Free',  body: 'Design unlimited arms on screen. Share a watermarked image and view the blazon.' },
-  { tier: 'Digital', price: <>$19<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> once</small></>, body: 'Your design, clean and watermark-free — hi-res PNG, SVG and a PDF certificate.' },
-  { tier: 'Printed & Framed', price: <>$49<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> +</small></>, body: 'A3 giclée, framed and posted to your door. Rolled, unframed print from $29.', highlight: true },
-  { tier: 'Membership', price: <>$9<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> /mo</small></>, body: 'For frequent makers: unlimited downloads, the full library and your saved arms.' },
+  { tier: 'Create',  price: 'Free',  body: 'Design as many coats of arms as you like, on screen. Share an image and read the blazon.' },
+  { tier: 'Digital', price: <>$19<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> once</small></>, body: 'Your finished design, watermark-free — a high-resolution image, a print file, and a certificate ready to print.' },
+  { tier: 'Printed & Framed', price: <>$49<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> +</small></>, body: 'Printed large on heavy art paper, framed, and posted to your door. Unframed from $29.', highlight: true },
+  { tier: 'Membership', price: <>$9<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> /mo</small></>, body: 'For frequent makers — unlimited downloads, the full symbol library, and every design you make, saved.' },
 ];
 
 export default function Landing({ onOpenStudio }) {
@@ -125,21 +125,21 @@ export default function Landing({ onOpenStudio }) {
       {/* Hero */}
       <section style={{ ...sectionWrap, padding: isMobile ? `40px ${PAD}px 36px` : '70px 36px 40px', display: 'grid', gridTemplateColumns: isTablet ? '1fr' : '1.02fr .98fr', gap: isMobile ? 44 : 64, alignItems: 'center' }}>
         <div style={isTablet ? { order: 1 } : undefined}>
-          <div style={eyebrow}>Design a coat of arms</div>
+          <div style={eyebrow}>By letters patent</div>
           <h1 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 40 : 62, lineHeight: 1.02, margin: '18px 0 24px', letterSpacing: '-.5px', textWrap: 'balance' }}>
-            <DropCap>E</DropCap>very family has a story worth a coat&nbsp;of&nbsp;arms.
+            <DropCap>W</DropCap>e still grant arms. You just describe the&nbsp;person.
           </h1>
-          <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Describe someone you love. We translate it into authentic heraldry — the same grammar heralds have used for eight hundred years — and render it in bold, flat colour.</p>
+          <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms that belongs to them alone.</p>
           <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Start with a description</HoverBtn>
+            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Grant the arms</HoverBtn>
             <a href="#how" style={{ color: C.cream, textDecoration: 'none', fontSize: 15, paddingBottom: 3, borderBottom: `1px solid ${C.lineHi}` }}>See how it works</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.muted2, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
-            <span>No heraldry knowledge needed</span>
+            <span>No heraldry needed</span>
             <span style={{ width: 4, height: 4, borderRadius: '50%', background: C.lineHi }} />
-            <span>2,000+ authentic charges</span>
+            <span>2,000+ real heraldic symbols</span>
             <span style={{ width: 4, height: 4, borderRadius: '50%', background: C.lineHi }} />
-            <span>Print-ready</span>
+            <span>Ready to frame</span>
           </div>
         </div>
 
@@ -205,9 +205,9 @@ export default function Landing({ onOpenStudio }) {
       <section style={sec} id="how">
         <GildedRule />
         <div style={{ textAlign: 'center', margin: '0 auto 12px', maxWidth: '42em' }}>
-          <div style={eyebrow}>One screen, any depth</div>
-          <h2 style={h2Style}>One coat of arms. As deep as you want to go.</h2>
-          <p style={{ color: C.muted, fontSize: 16.5, lineHeight: 1.55, margin: '0 auto', maxWidth: '36em' }}>There are no modes to choose between. Begin with a sentence and stop there — or keep going, refining each element, right down to editing the blazon by hand. Underneath, it is always the same design.</p>
+          <div style={eyebrow}>As shallow or as deep as you like</div>
+          <h2 style={h2Style}>Begin with a sentence. Stop there — or go all the way down.</h2>
+          <p style={{ color: C.muted, fontSize: 16.5, lineHeight: 1.55, margin: '0 auto', maxWidth: '36em' }}>Most people describe a person, love what comes back, and frame it. But every choice is yours to make by hand — right down to the words of the blazon itself. You decide how far in to go.</p>
         </div>
 
         <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: isTablet ? '1fr' : 'repeat(3, 1fr)', gap: 26, marginTop: 46 }}>
@@ -227,7 +227,7 @@ export default function Landing({ onOpenStudio }) {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 40, color: C.muted, fontSize: 16, fontFamily: F.serif, fontStyle: 'italic' }}>
-          The data is always the blazon. <b style={{ color: C.cream, fontWeight: 600, fontStyle: 'normal', fontFamily: F.sans, fontSize: 15 }}>Slide deeper any time — nothing is ever lost, and there is nothing to switch.</b>
+          <b style={{ color: C.cream, fontWeight: 600, fontStyle: 'normal', fontFamily: F.sans, fontSize: 15 }}>However far in you go, nothing is locked and nothing is lost.</b>
         </div>
       </section>
 
@@ -263,7 +263,7 @@ export default function Landing({ onOpenStudio }) {
           ))}
         </div>
         <p style={{ textAlign: 'center', color: C.muted2, fontSize: 13, marginTop: 24 }}>
-          Building something with heraldry? <a href="#" style={{ color: C.gold, textDecoration: 'none' }}>Blazon API for developers — $29/mo →</a>
+          Building something heraldic of your own? <a href="#" style={{ color: C.gold, textDecoration: 'none' }}>There’s an API — $29/mo →</a>
         </p>
       </section>
 
@@ -273,7 +273,7 @@ export default function Landing({ onOpenStudio }) {
           <ParchInset inset={10} />
           <div>
             <h2 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 10px', color: C.parchInk }}>Give someone a coat of arms.</h2>
-            <p style={{ fontSize: 16, color: C.parchInk2, margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A print-ready A3 certificate, the blazon typeset by hand, posted to your door. The most personal gift you can design in ten minutes.</p>
+            <p style={{ fontSize: 16, color: C.parchInk2, margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A coat of arms made for one person — printed, framed, and posted to their door. The most personal gift you can design in ten minutes.</p>
           </div>
           <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '16px 32px', fontSize: 16, whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto', boxShadow: '0 8px 22px rgba(120,90,30,.3)' }} hoverStyle={goldBtnHover}>Design a gift</HoverBtn>
         </div>
@@ -281,7 +281,7 @@ export default function Landing({ onOpenStudio }) {
 
       <footer style={{ padding: `36px ${PAD}px 40px`, textAlign: 'center', color: C.muted2, fontSize: 13 }}>
         <GildedRule maxWidth={340} filled />
-        <div style={{ marginTop: 16 }}>Blazon — the heraldic manuscript, made digital. · <span style={{ fontFamily: F.serif, fontStyle: 'italic' }}>Per fess Or and Azure</span></div>
+        <div style={{ marginTop: 16 }}>Blazon — heraldry for everyone. · <span style={{ fontFamily: F.serif, fontStyle: 'italic' }}>Per fess Or and Azure</span></div>
         <div style={{ marginTop: 14 }}><CreditsLink /></div>
       </footer>
     </div>
@@ -291,13 +291,13 @@ export default function Landing({ onOpenStudio }) {
 // The three depths of the single experience (progressive disclosure made literal).
 const DEPTH_STEPS = [
   {
-    n: 'I', kicker: 'A sentence', title: 'Describe it', cap: '→ arms, drawn in seconds',
-    body: 'Tell us about a person. We do the heraldry and hand back something finished.',
+    n: 'I', kicker: 'A sentence', title: 'Describe a person', cap: '→ arms in seconds',
+    body: 'Tell us about someone. We turn it into a real coat of arms and hand it back, finished.',
     demo: <div style={{ background: C.bg, border: `1px solid ${C.line}`, borderRadius: 8, padding: '11px 13px', fontSize: 13.5, color: C.cream, fontStyle: 'italic', fontFamily: F.serif }}>“A grandmother who loved the sea and kept bees.”</div>,
   },
   {
-    n: 'II', kicker: 'The elements', title: 'Refine each part', cap: 'tap any element to change it',
-    body: 'Swap tinctures, structure and symbols from a real charge library. The rules guide you as you go.',
+    n: 'II', kicker: 'The pieces', title: 'Change anything', cap: 'tap to swap a colour or symbol',
+    body: 'Swap any colour, shape or symbol from a library of two thousand. We keep it correct so you never have to learn the rules.',
     demo: (
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
         {[['Field', '#1F4E7A'], ['Chevron', '#D4AF52'], ['Bee ×3', '#E7E1D3']].map(([t, c]) => (
@@ -309,8 +309,8 @@ const DEPTH_STEPS = [
     ),
   },
   {
-    n: 'III', kicker: 'The blazon', title: 'Read & edit the words', cap: 'the formal blazon — editable, validated',
-    body: 'Drop to the eight-centuries-old language itself, with live validation. Everything DrawShield should have been.',
+    n: 'III', kicker: 'The blazon', title: 'Down to the words', cap: 'the official description — yours to edit',
+    body: 'Every coat of arms has an official written description — its blazon. Read it, edit it, and watch the shield change to match.',
     demo: (
       <div style={{ fontFamily: F.mono, fontSize: 12.5, lineHeight: 1.7 }}>
         <span style={{ color: C.gold }}>Azure</span><span style={{ color: C.muted }}>, a chevron </span><span style={{ color: '#D4AF52' }}>Or</span><span style={{ color: C.muted }}> between three bees </span><span style={{ color: C.cream }}>Argent</span>

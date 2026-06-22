@@ -180,8 +180,8 @@ export default function Studio({ onBack }) {
               <>
                 <div onClick={() => setExportOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />
                 <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#101A2A', border: '1px solid rgba(201,162,75,.3)', borderRadius: 8, padding: 6, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 20, minWidth: 188, boxShadow: '0 10px 30px rgba(0,0,0,.5)' }}>
-                  <button onClick={() => doExport('svg')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download SVG</button>
-                  <button onClick={() => doExport('png')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download PNG · print</button>
+                  <button onClick={() => doExport('svg')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download vector file</button>
+                  <button onClick={() => doExport('png')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download image · print quality</button>
                 </div>
               </>
             )}
@@ -206,7 +206,7 @@ export default function Studio({ onBack }) {
           {generating && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
               <div style={{ width: 44, height: 44, border: '3px solid rgba(201,162,75,.25)', borderTopColor: '#C9A24B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-              <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19, color: 'rgba(236,230,216,.85)', maxWidth: '18em', textAlign: 'center', lineHeight: 1.4 }}>Reading your story, consulting eight centuries of heraldry…</span>
+              <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19, color: 'rgba(236,230,216,.85)', maxWidth: '18em', textAlign: 'center', lineHeight: 1.4 }}>Reading your story and drawing the arms…</span>
             </div>
           )}
 
@@ -224,7 +224,7 @@ export default function Studio({ onBack }) {
                 )}
               </div>
               {!local && dsUrl && !dsFailed && (
-                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>rendered via DrawShield</div>
+                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
               )}
               {design.motto && design.motto.trim() && (
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: '#C9A24B', marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
@@ -238,7 +238,7 @@ export default function Studio({ onBack }) {
           {step === 'describe' && (
             <div style={{ animation: 'fadein .4s ease' }}>
               <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 30, margin: '0 0 10px' }}>Tell us their story.</h2>
-              <p style={{ fontSize: 14.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 22px' }}>A name, a place, what they love, what they're like. The more human, the better the arms. We do the heraldry.</p>
+              <p style={{ fontSize: 14.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 22px' }}>A name, a place, what they loved, what they were like. The more human, the better the arms — we do the rest.</p>
               <textarea
                 value={desc}
                 onChange={(e) => { setDesc(e.target.value); setSelectedPreset(null); }}
@@ -252,7 +252,7 @@ export default function Studio({ onBack }) {
                 ))}
               </div>
               <Turnstile ref={turnstileRef} onToken={setToken} />
-              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Design the coat of arms'}</button>
+              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Working…' : 'Grant the arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
                   {genNotice === 'rate'
@@ -260,7 +260,7 @@ export default function Studio({ onBack }) {
                     : 'Please complete the verification above, then try again.'}
                 </p>
               )}
-              <p style={{ fontSize: 12, color: 'rgba(236,230,216,.45)', textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required. You can refine every choice afterwards.</p>
+              <p style={{ fontSize: 12, color: 'rgba(236,230,216,.45)', textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required — you can change every choice afterwards.</p>
             </div>
           )}
 
@@ -270,7 +270,7 @@ export default function Studio({ onBack }) {
                 <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 28, margin: 0 }}>Here's what we made.</h2>
                 <button onClick={restart} style={{ background: 'transparent', border: 'none', color: '#C9A24B', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Start over</button>
               </div>
-              <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to swap a colour or shape. Open “more…” when you want to go deeper — nothing here needs a single heraldic term to start.</p>
+              <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to change a colour or shape. Open “more…” to go further — you don’t need to know a single heraldic word to start.</p>
 
               {warn && (
                 <div style={{ background: 'rgba(178,58,58,.16)', border: '1px solid #B23A3A', borderRadius: 10, padding: '13px 15px', marginBottom: 18, display: 'flex', gap: 11, alignItems: 'flex-start' }}>
@@ -474,7 +474,7 @@ export default function Studio({ onBack }) {
       {/* Blazon bar — always visible */}
       <div style={{ flex: 'none', background: '#0A0D14', borderTop: '1.5px solid #C9A24B', padding: isMobile ? '14px 16px' : '16px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
-          <span title="The blazon is the formal description your arms are built from — the source of truth." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif", flex: 'none' }}>i</span>
+          <span title="The blazon is the official written description of your arms — every coat of arms has one." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif", flex: 'none' }}>i</span>
           <LangToggle value={lang} onFormal={() => setLang('formal')} onPlain={() => setLang('plain')} plainLabel="Plain English" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
