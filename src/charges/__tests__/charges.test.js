@@ -15,6 +15,17 @@ test('recolorCharge swaps body fills to the tincture, keeps outlines + none', ()
   assert.ok(!/ffff00/i.test(out), 'original body colour gone');
 });
 
+test('recolorCharge swaps NAMED placeholder colours (fill:red), keeps black + none', () => {
+  const sample = '<svg viewBox="0 0 10 10"><path style="fill:red;stroke:#000" d="M0 0"/><path fill="blue"/><path style="fill:black"/><path fill="none"/><path style="fill:url(#g)"/></svg>';
+  const out = recolorCharge(sample, '#1F4E7A');
+  assert.ok(!/fill:red/i.test(out), 'named body colour (red) recoloured');
+  assert.ok(!/fill="blue"/i.test(out), 'named body colour (blue) recoloured');
+  assert.ok(out.includes('fill:#1F4E7A'), 'tincture applied');
+  assert.ok(/fill:black/i.test(out), 'black kept as outline');
+  assert.ok(out.includes('fill="none"'), 'none kept');
+  assert.ok(/fill:url\(#g\)/i.test(out), 'url() reference left untouched');
+});
+
 test('luminance threshold: only near-black is kept as outline', () => {
   assert.ok(luminance('#000000') < 0.12, 'black kept');
   assert.ok(luminance('#111111') < 0.12, 'near-black kept');

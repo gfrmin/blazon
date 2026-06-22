@@ -46,15 +46,23 @@ export function pickContrast(field, avoid) {
 
 // ── Hero (landing) cycling sets ──────────────────────────────────────────────
 export const HERO_FIELDS = ['Gules', 'Azure', 'Vert', 'Purpure', 'Sable', 'Or', 'Argent'];
-// `null` (no charge) is intentionally LAST so first-time visitors land on real charges.
+// When the visitor takes control of the hero shield, SYMBOL cycles the REAL
+// vocabulary — figural charges (recoloured R2 art) first, geometric after — so
+// "take control" never drops back to four abstract shapes. `null` (no charge) is
+// LAST. Every figural key here must exist in CHARGE_ART (so it renders locally).
 export const HERO_SYMBOLS = [
+  { type: 'lion', qty: 1 },
+  { type: 'eagle', qty: 1 },
+  { type: 'rose', qty: 3 },
+  { type: 'stag', qty: 1 },
+  { type: 'tower', qty: 1 },
+  { type: 'anchor', qty: 1 },
+  { type: 'dragon', qty: 1 },
+  { type: 'fleurdelys', qty: 3 },
   { type: 'mullet', qty: 3 },
   { type: 'crescent', qty: 2 },
   { type: 'roundel', qty: 1 },
-  { type: 'mullet', qty: 2 },
   { type: 'lozenge', qty: 3 },
-  { type: 'crescent', qty: 1 },
-  { type: 'roundel', qty: 3 },
   null,
 ];
 
@@ -62,6 +70,47 @@ export const HERO_INITIAL = {
   field: 'Gules', ordinary: 'chevron', ordinaryTincture: 'Or',
   charges: [{ type: 'mullet', tincture: 'Argent', qty: 3 }],
 };
+
+// ── The landing "generative reel" ────────────────────────────────────────────
+// Auto-rotating proof of the promise: a described person → a finished coat (a
+// figural charge from the R2 art library + a motto + a one-line reason). Each
+// scene is deliberately distinct (field, charge family, metal) so the rotation
+// shows the RANGE the single interactive shield never could. Designs use the
+// legacy flat shape Shield accepts; `ordinary: null` is required so normalize()
+// treats them as legacy (it keys on the presence of `ordinary`). All scenes are
+// colour-field + metal-charge — tincture-rule valid (computeWarn → null).
+export const REEL = [
+  {
+    sentence: 'A grandmother who spent her whole life by the sea.',
+    design: { field: 'Azure', ordinary: null, charges: [{ type: 'anchor', tincture: 'Argent', qty: 1 }] },
+    motto: 'Hold fast',
+    reason: 'An anchor, for a life lived by the sea.',
+  },
+  {
+    sentence: 'Three generations of soldiers — bold, fierce, and proud.',
+    design: { field: 'Gules', ordinary: null, charges: [{ type: 'lion', tincture: 'Or', qty: 1, attitude: 'rampant' }] },
+    motto: 'Without fear',
+    reason: 'A lion rampant, for courage handed down the line.',
+  },
+  {
+    sentence: 'A gardener who could coax anything into bloom.',
+    design: { field: 'Vert', ordinary: null, charges: [{ type: 'rose', tincture: 'Or', qty: 3 }] },
+    motto: 'By patient hands',
+    reason: 'Three roses, for a garden she made bloom.',
+  },
+  {
+    sentence: 'A teacher who loved the wild and walked it every weekend.',
+    design: { field: 'Sable', ordinary: null, charges: [{ type: 'stag', tincture: 'Argent', qty: 1 }] },
+    motto: 'Tread lightly',
+    reason: 'A stag, for a gentle, untamed spirit.',
+  },
+  {
+    sentence: 'A builder who raised homes with his own hands.',
+    design: { field: 'Purpure', ordinary: null, charges: [{ type: 'tower', tincture: 'Or', qty: 1 }] },
+    motto: 'Built to last',
+    reason: 'A tower, for steady hands and solid ground.',
+  },
+];
 
 // ── Gifter presets ───────────────────────────────────────────────────────────
 // PROTOTYPE ONLY. In production, replace generation with a Claude API call

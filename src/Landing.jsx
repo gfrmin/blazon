@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Shield from './Shield.jsx';
 import CreditsLink from './Credits.jsx';
 import { HoverBtn, LangToggle, Lift } from './ui.jsx';
@@ -7,8 +7,10 @@ import { C, F, goldBtn, goldBtnHover, eyebrow, pageWash, parchSurface } from './
 import { GildedRule, FrameCorners, ParchInset, DropCap } from './components/Ornament.jsx';
 import {
   TINCTURES, ORDINARY_ORDER, CHARGES, blazon, cap,
-  HERO_FIELDS, HERO_SYMBOLS, HERO_INITIAL, contrastPool, pickContrast,
+  HERO_FIELDS, HERO_SYMBOLS, REEL, contrastPool, pickContrast,
 } from './heraldry.js';
+import { fetchCharge } from './charges/recolor.js';
+import { artFile } from './charges/manifest.js';
 
 const LOGO = (
   <svg width="28" height="32" viewBox="0 0 30 34">
@@ -17,11 +19,12 @@ const LOGO = (
   </svg>
 );
 
-// Three gallery arms, chosen to span the full range (warm/cool, all 7 tinctures).
+// Three gallery arms, chosen to show the figural range (beast / flora / object)
+// across warm and cool fields — not just the geometric charges.
 const GALLERY = [
-  { title: 'House of Calder',     design: { field: 'Or',     ordinary: 'saltire', ordinaryTincture: 'Gules', charges: [{ type: 'roundel',  tincture: 'Azure',  qty: 1 }] } },
-  { title: 'The Aldermere Arms',  design: { field: 'Azure',  ordinary: 'bend',    ordinaryTincture: 'Or',    charges: [{ type: 'crescent', tincture: 'Argent', qty: 2 }] } },
-  { title: 'Família Vendral',     design: { field: 'Argent', ordinary: 'chevron', ordinaryTincture: 'Sable', charges: [{ type: 'lozenge',  tincture: 'Gules',  qty: 3 }] } },
+  { title: 'House of Calder',     design: { field: 'Gules', ordinary: null,      charges: [{ type: 'lion',  tincture: 'Or',     qty: 1, attitude: 'rampant' }] } },
+  { title: 'The Aldermere Arms',  design: { field: 'Azure', ordinary: 'chevron', ordinaryTincture: 'Or', charges: [{ type: 'rose',  tincture: 'Argent', qty: 3 }] } },
+  { title: 'Família Vendral',     design: { field: 'Or',    ordinary: null,      charges: [{ type: 'tower', tincture: 'Sable',  qty: 1 }] } },
 ];
 
 // Transaction-led pricing (the product is a one-time, emotional purchase, not a
@@ -35,17 +38,46 @@ const PRICING = [
 ];
 
 export default function Landing({ onOpenStudio }) {
-  const [hero, setHero] = useState(HERO_INITIAL);
+  const [sceneIdx, setSceneIdx] = useState(0);
+  const [hero, setHero] = useState(REEL[0].design);
   const [lang, setLang] = useState('formal');
-  const [touched, setTouched] = useState(false);
+  const [driving, setDriving] = useState(false); // user took the wheel (edit mode)
+  const [paused, setPaused] = useState(false);    // auto-advance halted (still reel view)
   const [hoverPart, setHoverPart] = useState(null);
 
   const isMobile = useMediaQuery('(max-width: 720px)');
   const isTablet = useMediaQuery('(max-width: 1000px)');
+  const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+
+  // ── The reel: auto-advance through scenes until the visitor takes control ──
+  const reelActive = !driving && !paused && !reduceMotion;
+  useEffect(() => {
+    if (!reelActive) return undefined;
+    const id = setInterval(() => setSceneIdx((i) => (i + 1) % REEL.length), 5200);
+    return () => clearInterval(id);
+  }, [reelActive]);
+  // In reel mode (incl. paused / reduced-motion) the shield follows the scene;
+  // in drive mode the shield is the visitor's own working design.
+  useEffect(() => {
+    if (!driving) setHero(REEL[sceneIdx].design);
+  }, [sceneIdx, driving]);
+  // Warm the figural art so rotation is instant and the first scene paints fast.
+  useEffect(() => {
+    REEL.forEach((s) => {
+      const c = s.design.charges && s.design.charges[0];
+      const f = c && artFile(c.type, c.attitude);
+      if (f) fetchCharge(f);
+    });
+  }, []);
+
+  const scene = REEL[sceneIdx];
+  const takeControl = () => { setDriving(true); setPaused(true); };
+  const watchExamples = () => { setDriving(false); setPaused(false); };
+  const goToScene = (i) => { setSceneIdx(i); setPaused(true); setDriving(false); };
 
   // ── Hero cycling (always tincture-rule valid via pickContrast) ──
   const cycleField = () => {
-    setTouched(true);
+    takeControl();
     setHero((h) => {
       const next = HERO_FIELDS[(HERO_FIELDS.indexOf(h.field) + 1) % HERO_FIELDS.length];
       const ord = pickContrast(next, null);
@@ -54,7 +86,7 @@ export default function Landing({ onOpenStudio }) {
     });
   };
   const cycleOrdinary = () => {
-    setTouched(true);
+    takeControl();
     setHero((h) => {
       const nextOrd = ORDINARY_ORDER[(ORDINARY_ORDER.indexOf(h.ordinary) + 1) % ORDINARY_ORDER.length];
       const pool = contrastPool(h.field);
@@ -63,7 +95,7 @@ export default function Landing({ onOpenStudio }) {
     });
   };
   const cycleSymbol = () => {
-    setTouched(true);
+    takeControl();
     setHero((h) => {
       const cur = h.charges.length ? `${h.charges[0].type}-${h.charges[0].qty}` : 'none';
       const keys = HERO_SYMBOLS.map((x) => (x ? `${x.type}-${x.qty}` : 'none'));
@@ -73,7 +105,7 @@ export default function Landing({ onOpenStudio }) {
     });
   };
   const surprise = () => {
-    setTouched(true);
+    takeControl();
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
     const field = pick(HERO_FIELDS);
     const ordinaryTincture = pickContrast(field, null);
@@ -131,7 +163,7 @@ export default function Landing({ onOpenStudio }) {
           </h1>
           <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms that belongs to them alone.</p>
           <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Grant the arms</HoverBtn>
+            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
             <a href="#how" style={{ color: C.cream, textDecoration: 'none', fontSize: 15, paddingBottom: 3, borderBottom: `1px solid ${C.lineHi}` }}>See how it works</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.muted2, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
@@ -143,20 +175,60 @@ export default function Landing({ onOpenStudio }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, ...(isTablet ? { order: 2 } : null) }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, ...(isTablet ? { order: 2 } : null) }}>
+          {/* Caption: the described person (reel) — or a cue that they're driving */}
+          <div style={{ width: '100%', maxWidth: 392, minHeight: 70, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+            {driving ? (
+              <div>
+                <div style={{ fontSize: 10.5, letterSpacing: '1.6px', color: C.gold, marginBottom: 7, textTransform: 'uppercase' }}>Your design</div>
+                <div style={{ fontSize: 14, lineHeight: 1.4, color: C.muted }}>Tap a part to change it — or watch the examples again.</div>
+              </div>
+            ) : (
+              <div key={sceneIdx} style={{ animation: 'fadein .5s ease' }}>
+                <div style={{ fontSize: 10.5, letterSpacing: '1.6px', color: C.gold, marginBottom: 7, textTransform: 'uppercase' }}>From a single sentence</div>
+                <div style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 18.5, lineHeight: 1.34, color: C.cream }}>“{scene.sentence}”</div>
+              </div>
+            )}
+          </div>
+
           {/* The interactive coat of arms — framed like a manuscript plate */}
           <div style={{ position: 'relative', width: '100%', maxWidth: 392, padding: '22px 22px 14px', border: `1px solid ${C.line}`, borderRadius: 14, background: 'radial-gradient(circle at 50% 40%, rgba(201,162,75,.10), rgba(15,24,38,.5) 70%)' }}>
             <FrameCorners />
             <Shield
               design={hero}
               interactive
-              autoHint={!touched}
+              autoHint={false}
               hoverPart={hoverPart}
               onHover={setHoverPart}
               onField={cycleField}
               onOrdinary={cycleOrdinary}
               onCharge={cycleSymbol}
             />
+          </div>
+
+          {/* The result: motto + the one-line reason (reel only) */}
+          <div style={{ width: '100%', maxWidth: 392, minHeight: 50, textAlign: 'center' }}>
+            {!driving && (
+              <div key={sceneIdx} style={{ animation: 'fadein .5s ease' }}>
+                <div style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 17, color: C.gold }}>“{scene.motto}”</div>
+                <div style={{ fontSize: 12.5, color: C.muted2, marginTop: 4 }}>{scene.reason}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Progress dots + a way back to the reel */}
+          <div style={{ width: '100%', maxWidth: 392, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 9 }}>
+            {REEL.map((s, i) => (
+              <button
+                key={i}
+                aria-label={`Example ${i + 1}`}
+                onClick={() => goToScene(i)}
+                style={{ width: !driving && i === sceneIdx ? 22 : 8, height: 8, borderRadius: 20, border: 'none', padding: 0, cursor: 'pointer', background: !driving && i === sceneIdx ? C.gold : 'rgba(201,162,75,.32)', transition: 'width .25s, background .25s' }}
+              />
+            ))}
+            {(driving || paused) && (
+              <HoverBtn onClick={watchExamples} style={{ marginLeft: 8, background: 'none', border: 'none', color: C.gold, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }} hoverStyle={{ color: C.cream }}>↻ Watch examples</HoverBtn>
+            )}
           </div>
 
           <div style={{ width: '100%', maxWidth: 392, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -178,7 +250,7 @@ export default function Landing({ onOpenStudio }) {
             <HoverBtn onClick={cycleOrdinary} onMouseEnter={() => setHoverPart('ord')} onMouseLeave={() => setHoverPart(null)} style={ctrlBase} hoverStyle={ctrlHover}>
               <span style={{ width: 17, height: 17, flex: 'none', borderRadius: 4, border: `1.5px solid ${C.gold}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: C.gold }}>✕</span>
               <span style={ctrlLabel}>STRUCTURE</span>
-              <span style={ctrlValue}>{cap(hero.ordinary)}</span>
+              <span style={ctrlValue}>{hero.ordinary ? cap(hero.ordinary) : 'None'}</span>
               {cycleGlyph}
             </HoverBtn>
             <HoverBtn onClick={cycleSymbol} onMouseEnter={() => setHoverPart('chg')} onMouseLeave={() => setHoverPart(null)} style={ctrlBase} hoverStyle={ctrlHover}>

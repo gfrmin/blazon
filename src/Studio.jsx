@@ -252,7 +252,7 @@ export default function Studio({ onBack }) {
                 ))}
               </div>
               <Turnstile ref={turnstileRef} onToken={setToken} />
-              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Working…' : 'Grant the arms'}</button>
+              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
                   {genNotice === 'rate'
