@@ -3,10 +3,27 @@ name: Deploy to Cloudflare Pages
 on:
   push:
     branches: [master]
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm test
+
   deploy:
+    if: github.event_name == 'push'
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
