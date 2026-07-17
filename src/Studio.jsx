@@ -12,7 +12,8 @@ import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat, designHash } from './share/codec.js';
-import { saveDesign, listDesigns, findByHash } from './library.js';
+import { saveDesign, listDesigns, findByHash, setUnlocked as setLibraryUnlocked } from './library.js';
+import { recordUnlock, CHECKOUT_PENDING_KEY } from './unlock.js';
 import { headerControls } from './header-layout.js';
 import { track } from './analytics.js';
 import { raceWithTimeout } from './timeoutRace.js';
@@ -191,7 +192,26 @@ export default function Studio({ onBack }) {
   const submitStartRef = useRef(0);         // performance.now() at the most recent generate() submit
   const pendingFirstRenderRef = useRef(false); // true between a generate() success and the design's first paint
   const hasEditedRef = useRef(false);       // has design_edited fired yet for the *current* design
+  const editsCountRef = useRef(0);          // count of design_edited fires for the *current* design — download_opened{edits_count} (task-19 brief §6)
   const searchPickedRef = useRef(false);    // did the current charge-search session already end in a pick
+
+  // ── M4 unlock return-leg (task-19 brief §4) — a verified-but-not-yet-
+  // finalized purchase: set once /api/verify-payment confirms `paid:true`,
+  // consumed by the finalize effect below once `design` has settled to the
+  // SAME hash Stripe's metadata carried. The hash-restore mount effect and
+  // this ?cs= verification are two independent effects that can resolve in
+  // EITHER order — this ref is what lets them rendezvous. `unlockTick` is
+  // the other half of that: in the (common) case where `design` finishes
+  // loading BEFORE verify-payment resolves, the finalize effect's `[design]`
+  // dependency has already run once (finding pendingUnlockRef still null)
+  // and — `design` itself not changing again — would otherwise never
+  // re-run; bumping this counter the instant pendingUnlockRef is actually
+  // set forces that re-check regardless of which side arrived first (caught
+  // live: the design-loads-first ordering is the actual common case, since
+  // decodeCoat is local/synchronous-ish while verify-payment is a real
+  // network round trip). ──
+  const pendingUnlockRef = useRef(null); // { hash, token } | null
+  const [unlockTick, setUnlockTick] = useState(0);
 
   // studio_opened — once per mount, with the CTA source Landing recorded
   // (or 'direct' for a bare /studio visit / refresh / share arrival).
@@ -292,6 +312,7 @@ export default function Studio({ onBack }) {
     const elapsed = Date.now() - started; // hold the spinner briefly so it never flashes
     if (elapsed < 900) await new Promise((res) => setTimeout(res, 900 - elapsed));
     hasEditedRef.current = false;        // a freshly generated design — no edits yet
+    editsCountRef.current = 0;
     pendingFirstRenderRef.current = true; // consumed by the first_render effect below
     setDesign(next);
     setGenerating(false);
@@ -316,6 +337,7 @@ export default function Studio({ onBack }) {
     track('preset_selected', { index: i });
     const next = withDefaultAchievement(JSON.parse(JSON.stringify(PRESETS[i].design)));
     hasEditedRef.current = false;         // a freshly picked design — no edits yet
+    editsCountRef.current = 0;
     pendingFirstRenderRef.current = true; // consumed by the first_render effect below
     submitStartRef.current = performance.now();
     setDesign(next);
@@ -344,6 +366,7 @@ export default function Studio({ onBack }) {
     setDesign((d) => fn(d, ...args));
     const isFirstEdit = !hasEditedRef.current;
     hasEditedRef.current = true;
+    editsCountRef.current += 1;
     track('design_edited', { part, control, is_first_edit: isFirstEdit });
   };
 
@@ -429,6 +452,7 @@ export default function Studio({ onBack }) {
           const coat = await decodeCoat(hashPayload);
           if (cancelled) return;
           hasEditedRef.current = false; // a freshly loaded design — no edits yet
+          editsCountRef.current = 0;
           setDesign(coat);
           setLang('plain');
           setStep('design');
@@ -443,6 +467,7 @@ export default function Studio({ onBack }) {
         if (envelope && envelope.v === 1 && envelope.coat) {
           if (cancelled) return;
           hasEditedRef.current = false; // a freshly loaded design — no edits yet
+          editsCountRef.current = 0;
           setDesign(envelope.coat);
           setLang('plain');
           setStep('design');
@@ -473,6 +498,97 @@ export default function Studio({ onBack }) {
     setAutoGenPending(false);
     generate();
   }, [autoGenPending]);
+
+  // ── M4 unlock return leg (task-19 brief §4) — the Stripe Checkout
+  // `?cs=<session_id>` success redirect. Independent of, and possibly
+  // resolving before OR after, the hash-restore effect above (both fire on
+  // mount) — see pendingUnlockRef's own comment for how they rendezvous.
+  // Runs once per mount; `?cs=` is stripped below regardless of outcome, so
+  // a re-render never re-triggers this (and a genuine remount — e.g. the
+  // user hits refresh before the strip completes — safely re-verifies the
+  // SAME session_id, which /api/verify-payment treats idempotently).
+  useEffect(() => {
+    let cancelled = false;
+    const q = parseQuery(window.location.search);
+    (async () => {
+      if (q.cs) {
+        try {
+          const res = await fetch('/api/verify-payment', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ session_id: q.cs }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!cancelled) {
+            if (res.ok && data.paid && data.token && data.designHash) {
+              pendingUnlockRef.current = { hash: data.designHash, token: data.token };
+              // Force the finalize effect below to (re-)check NOW — the
+              // common case is `design` already settled (a local decode)
+              // well before this network round trip returns, so its own
+              // `[design]` dependency won't fire again on its own; see
+              // pendingUnlockRef's comment.
+              setUnlockTick((t) => t + 1);
+            } else {
+              // Verified but unpaid/unknown session — treat like a cancel
+              // return (no partial/half-unlocked state is ever shown).
+              track('checkout_abandoned');
+            }
+          }
+        } catch { /* network failure verifying — fail-safe: no crash, no false unlock */ }
+        try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
+        // Strip ?cs= either way — a one-shot session id must never linger in
+        // the address bar/history. Keeps whatever hash payload is present.
+        navigate('/studio' + window.location.hash, { replace: true });
+      } else {
+        let pending = false;
+        try { pending = sessionStorage.getItem(CHECKOUT_PENDING_KEY) === '1'; } catch { /* storage unavailable */ }
+        if (pending) {
+          track('checkout_abandoned'); // returned via cancel_url (or closed the Stripe tab) — no ?cs= at all
+          try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Finalize a verified-but-pending unlock once `design` has settled to the
+  // SAME hash Stripe's metadata carried (set by the effect above; consumed
+  // here rather than there so this works regardless of which effect resolves
+  // first — see pendingUnlockRef's own comment). Depends on `unlockTick` as
+  // well as `design`: `design` becoming available and verify-payment
+  // resolving are two independent async events, and either can happen
+  // second — this effect must re-run on WHICHEVER one arrives last, not
+  // just on `design` changing. A mismatch (design hasn't caught up yet, or
+  // — defensively — never will) just leaves the ref set; it costs nothing
+  // to wait, and this NEVER unlocks the wrong design.
+  useEffect(() => {
+    if (!pendingUnlockRef.current || !design) return undefined;
+    const pending = pendingUnlockRef.current;
+    let cancelled = false;
+    designHash(design).then((h) => {
+      if (cancelled || h !== pending.hash) return;
+      pendingUnlockRef.current = null;
+      recordUnlock(h, pending.token, { v: 1, coat: design });
+      // Ensure the purchased design lives in the library too (task-19 brief
+      // §4: "the purchased snapshot stays downloadable from the library"),
+      // flagged unlocked — overwrites the current entry if this design is
+      // already saved (currentId), else creates one so a purchase is never
+      // silently unsaved-and-unfindable.
+      const result = saveDesign(localStorage, { id: currentId || undefined, coat: design });
+      if (result) {
+        setCurrentId(result.id);
+        setLibraryUnlocked(localStorage, result.id, true);
+      }
+      track('checkout_completed', { value: 19 });
+      setDownloadSurface('header');
+      setDownloadOpen(true); // reopens in the unlocked state — DownloadDialog re-derives it from isUnlocked(hash)
+    }).catch(() => { /* hashing failure — pendingUnlockRef stays set; costs nothing to leave it */ });
+    return () => { cancelled = true; };
+    // currentId is read, not depended-on-for-re-running: this effect's job is
+    // "design caught up to the pending hash OR a pending unlock just
+    // arrived", which only design/unlockTick changing can ever newly satisfy.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [design, unlockTick]);
 
   // first_render — once per generation, when the design step actually paints
   // the new design (useEffect runs after commit/paint, not before). The
@@ -548,6 +664,7 @@ export default function Studio({ onBack }) {
   // brief §3) — dedicated call-sites, not folded into apply()/design_edited.
   const setAsidePart = (part, clearFn) => {
     setDesign((d) => clearFn(d));
+    editsCountRef.current += 1; // counted alongside apply()'s edits — see download_opened{edits_count}
     track('achievement_part_removed', { part });
   };
   // Restore always re-seeds via restoreFullAchievement (coat.js) — it only
@@ -556,9 +673,11 @@ export default function Studio({ onBack }) {
   // re-seeds via the relevant set* default").
   const restorePart = (part) => {
     setDesign((d) => restoreFullAchievement(d));
+    editsCountRef.current += 1;
     track('achievement_part_restored', { part });
   };
   const toggleJustShield = () => {
+    editsCountRef.current += 1;
     if (hasAchievement(design)) {
       setDesign((d) => stripAchievement(d));
       track('just_shield_toggled', { on: true });
@@ -1171,7 +1290,15 @@ export default function Studio({ onBack }) {
         <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? '#C9A24B' : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
 
-      <DownloadDialog open={downloadOpen && !!design} onClose={() => setDownloadOpen(false)} design={design} surface={downloadSurface} />
+      <DownloadDialog
+        open={downloadOpen && !!design}
+        onClose={() => setDownloadOpen(false)}
+        design={design}
+        surface={downloadSurface}
+        currentId={currentId}
+        editsCount={editsCountRef.current}
+        hasAchievement={showAchievement}
+      />
     </div>
   );
 }

@@ -15,3 +15,18 @@ pages_build_output_dir = "dist"
 [[kv_namespaces]]
 binding = "RATE"
 id = "de4812ca80b3454193bb009defd3124e"
+
+# Purchase audit KV for /api/verify-payment (M4/B8) — a SEPARATE namespace
+# from RATE (different retention/access shape: one write per real purchase,
+# never expired, vs. RATE's short-TTL abuse counters). Best-effort only:
+# /api/verify-payment still mints/returns the unlock token when this
+# namespace is absent or a write to it fails — never a gate on unlocking.
+#
+# PROVISION BEFORE DEPLOY: this id is a PLACEHOLDER. Create the real
+# namespace and replace it:
+#   npx wrangler kv namespace create PURCHASES
+# then paste the returned id here (and, if you also use a preview/dev
+# namespace, add `preview_id` the same way RATE would if it had one).
+[[kv_namespaces]]
+binding = "PURCHASES"
+id = "REPLACE_WITH_REAL_PURCHASES_KV_NAMESPACE_ID"

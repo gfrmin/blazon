@@ -2,16 +2,26 @@ import React, { useEffect, useRef, useState } from 'react';
 import { C, F, goldBtn, goldBtnHover } from '../theme.js';
 import { HoverBtn } from '../ui.jsx';
 import { track } from '../analytics.js';
+import { encodeCoat, designHash } from '../share/codec.js';
+import { isUnlocked, CHECKOUT_PENDING_KEY } from '../unlock.js';
+import { getDesign } from '../library.js';
 
-// The app's first modal (task-6 brief §2). A plain dark panel consistent with
-// the old export-dropdown styling — no new ornament work. Free download is
-// the only actionable option until Stripe lands (a later task); the paid
-// slot renders inert copy on purpose rather than a dead $19 button.
+// The app's first modal (task-6 brief §2), later extended with the M4 paid
+// unlock (task-19 brief §4/§5). A plain dark panel consistent with the old
+// export-dropdown styling. Free download is always live; the paid slot is
+// one of three states, computed fresh on every open:
+//   - `checkoutConfigured === false` (still loading, or genuinely
+//     unconfigured) → inert "coming very soon" copy — fail-safe (task-19
+//     brief, verbatim): NEVER an actionable $19 button unless /api/health
+//     has POSITIVELY confirmed Stripe is configured.
+//   - `unlockedForHash` (the CURRENT design's designHash isUnlocked,
+//     src/unlock.js) → the clean-file buttons directly, no CTA.
+//   - otherwise, configured → the live "$19 — own it" → Stripe Checkout CTA.
 //
 // Basic a11y only for now (a fuller audit is a later task): overlay click +
 // Esc close it, focus moves in on open and returns to the trigger on close,
 // role="dialog" + aria-modal + a labelled title.
-export default function DownloadDialog({ open, onClose, design, surface }) {
+export default function DownloadDialog({ open, onClose, design, surface, currentId = null, editsCount = 0, hasAchievement = false }) {
   const panelRef = useRef(null);
   const previouslyFocused = useRef(null);
   const [printNoted, setPrintNoted] = useState(false);
@@ -21,30 +31,61 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
   // a render; this ref blocks the second call the instant the first starts.
   const inFlight = useRef(false);
 
+  // ── M4 unlock state — recomputed each time the dialog opens (see the
+  // effect below; keyed off `[open]` like the rest of this file's reset
+  // logic, not `[design]`, matching the existing convention). ──
+  const [hash, setHash] = useState(null); // this design's designHash, once computed
+  const [checkoutConfigured, setCheckoutConfigured] = useState(false); // pessimistic default — see file header
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState(false);
+  const [cleanBusy, setCleanBusy] = useState(null); // 'svg' | 'png' | 'pdf' | null — which clean download is in flight
+  const [cleanError, setCleanError] = useState(false);
+
   useEffect(() => {
     if (!open) return undefined;
     setPrintNoted(false);
     setDownloadError(false);
     setDownloading(false);
+    setCheckoutError(false);
+    setCheckingOut(false);
+    setCleanBusy(null);
+    setCleanError(false);
     inFlight.current = false;
     previouslyFocused.current = document.activeElement;
-    track('download_opened', { surface });
+    track('download_opened', { surface, edits_count: editsCount, has_achievement: hasAchievement });
+
+    let cancelled = false;
+    setHash(null);
+    if (design) {
+      designHash(design).then((h) => { if (!cancelled) setHash(h); }).catch(() => {});
+    }
+    fetchCheckoutConfigured().then((c) => { if (!cancelled) setCheckoutConfigured(c); });
 
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     const raf = requestAnimationFrame(() => panelRef.current?.focus());
 
     return () => {
+      cancelled = true;
       document.removeEventListener('keydown', onKey);
       cancelAnimationFrame(raf);
       previouslyFocused.current?.focus?.();
     };
-    // Only the open transition (re-)runs this; `onClose`/`surface` are stable
-    // for the lifetime of a given open dialog.
+    // Only the open transition (re-)runs this; `onClose`/`surface`/`design`/
+    // `editsCount`/`hasAchievement` are stable for the lifetime of a given
+    // open dialog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;
+
+  const unlockedForHash = hash ? isUnlocked(hash) : false;
+  // Honesty rule (task-19 brief §4): if the CURRENT hash isn't unlocked but
+  // this working design is already a saved library entry that IS flagged
+  // unlocked, the arms were edited since purchase — the paid button must
+  // return (a different hash needs its own $19), but the line below tells
+  // the visitor their purchased file didn't vanish.
+  const purchasedElsewhere = !unlockedForHash && currentId ? !!getDesign(localStorage, currentId)?.unlocked : false;
 
   const downloadFree = async () => {
     if (inFlight.current) return; // guard against double-clicks firing two downloads
@@ -73,10 +114,53 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
     }
   };
 
+  const downloadClean = async (format) => {
+    if (cleanBusy) return;
+    setCleanBusy(format);
+    setCleanError(false);
+    track('download_paid_file', { format });
+    try {
+      const m = await import('../export.js');
+      if (format === 'svg') await m.downloadCleanSVG(design);
+      else if (format === 'png') await m.downloadCleanPNG(design);
+      else if (format === 'pdf') await m.downloadCleanPDF(design);
+      setCleanBusy(null);
+    } catch {
+      setCleanError(true);
+      setCleanBusy(null);
+    }
+  };
+
+  const startCheckout = async () => {
+    if (checkingOut) return;
+    setCheckingOut(true);
+    setCheckoutError(false);
+    track('checkout_started');
+    try { sessionStorage.setItem(CHECKOUT_PENDING_KEY, '1'); } catch { /* storage unavailable — abandonment just won't be detected */ }
+    try {
+      const payload = await encodeCoat(design);
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ payload }),
+      });
+      if (!res.ok) throw new Error('checkout_failed');
+      const data = await res.json();
+      if (!data.url) throw new Error('no_url');
+      window.location.href = data.url; // full navigation to Stripe Checkout
+    } catch {
+      setCheckoutError(true);
+      setCheckingOut(false);
+      try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
+    }
+  };
+
   const noteInterest = () => {
     track('print_interest_clicked');
     setPrintNoted(true);
   };
+
+  const cleanBtnStyle = { ...goldBtn, padding: '10px 16px', fontSize: 13.5, width: '100%', textAlign: 'center' };
 
   return (
     <div
@@ -97,7 +181,7 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(236,230,216,.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1, padding: 0, marginLeft: 12 }}>×</button>
         </div>
 
-        {/* Free — the only actionable option until Stripe lands */}
+        {/* Free — always live */}
         <div style={{ background: C.ink, border: `1px solid ${C.lineMid}`, borderRadius: 10, padding: '16px 18px', marginBottom: 12 }}>
           <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: C.cream, marginBottom: 6 }}>Free — share it</div>
           <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Share it — a fine image for screens, with a small mark of its making.</p>
@@ -114,14 +198,54 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
           )}
         </div>
 
-        {/* Paid — inert copy, no price button, until Stripe lands (task-6 brief §2).
-            Inactive read comes from the muted theme tokens alone (no container
-            opacity — that composed with C.muted2 text to ~2:1, under the 3:1 floor). */}
-        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
-          <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: C.muted, marginBottom: 6 }}>Own it — print files</div>
-          <p style={{ fontSize: 13, color: C.muted2, lineHeight: 1.5, margin: 0 }}>Print-resolution image and vector artwork, clean and yours forever. Coming very soon.</p>
-          {/* TODO(M4): $19 checkout */}
-        </div>
+        {/* Paid — one of three states (unlocked / live CTA / coming soon), see file header. */}
+        {unlockedForHash ? (
+          <div style={{ background: C.ink, border: `1px solid ${C.lineHi}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
+            <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: C.gold, marginBottom: 6 }}>Unlocked</div>
+            <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Unlocked — the clean files for these arms are yours.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <HoverBtn onClick={() => downloadClean('svg')} disabled={!!cleanBusy} style={{ ...cleanBtnStyle, opacity: cleanBusy && cleanBusy !== 'svg' ? .6 : 1 }} hoverStyle={goldBtnHover}>
+                {cleanBusy === 'svg' ? 'Downloading…' : 'Download SVG (vector)'}
+              </HoverBtn>
+              <HoverBtn onClick={() => downloadClean('png')} disabled={!!cleanBusy} style={{ ...cleanBtnStyle, opacity: cleanBusy && cleanBusy !== 'png' ? .6 : 1 }} hoverStyle={goldBtnHover}>
+                {cleanBusy === 'png' ? 'Downloading…' : 'Download PNG (300dpi print)'}
+              </HoverBtn>
+              <HoverBtn onClick={() => downloadClean('pdf')} disabled={!!cleanBusy} style={{ ...cleanBtnStyle, opacity: cleanBusy && cleanBusy !== 'pdf' ? .6 : 1 }} hoverStyle={goldBtnHover}>
+                {cleanBusy === 'pdf' ? 'Downloading…' : 'Download PDF'}
+              </HoverBtn>
+            </div>
+            {cleanError && (
+              <p role="alert" style={{ fontSize: 12.5, color: '#F0CFCF', lineHeight: 1.4, margin: '10px 0 0' }}>That didn’t download — try once more.</p>
+            )}
+          </div>
+        ) : (
+          <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
+            <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: checkoutConfigured ? C.cream : C.muted, marginBottom: 6 }}>Own it — print files</div>
+            {purchasedElsewhere && (
+              <p style={{ fontSize: 12.5, color: '#E0B36A', lineHeight: 1.5, margin: '0 0 12px' }}>
+                You&rsquo;ve changed the arms since unlocking — your purchased files are kept in your library.
+              </p>
+            )}
+            {checkoutConfigured ? (
+              <>
+                <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Print-resolution image and vector artwork, clean and yours forever.</p>
+                <HoverBtn
+                  onClick={startCheckout}
+                  disabled={checkingOut}
+                  style={{ ...goldBtn, padding: '11px 20px', fontSize: 14, width: '100%', opacity: checkingOut ? .6 : 1, cursor: checkingOut ? 'default' : 'pointer' }}
+                  hoverStyle={checkingOut ? {} : goldBtnHover}
+                >
+                  {checkingOut ? 'Redirecting…' : '$19 — own it'}
+                </HoverBtn>
+                {checkoutError && (
+                  <p role="alert" style={{ fontSize: 12.5, color: '#F0CFCF', lineHeight: 1.4, margin: '10px 0 0' }}>That didn’t work — try once more.</p>
+                )}
+              </>
+            ) : (
+              <p style={{ fontSize: 13, color: C.muted2, lineHeight: 1.5, margin: 0 }}>Print-resolution image and vector artwork, clean and yours forever. Coming very soon.</p>
+            )}
+          </div>
+        )}
 
         <button
           onClick={printNoted ? undefined : noteInterest}
@@ -133,4 +257,25 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
       </div>
     </div>
   );
+}
+
+// Cached (module-lifetime) presence check of server-side Stripe config —
+// fetched at most once per page load, mirroring components/Turnstile.jsx's
+// `loadScript()` caching. A network failure resolves `false` (fail-safe:
+// never show the actionable $19 CTA off an unconfirmed check).
+let checkoutConfigPromise = null;
+function fetchCheckoutConfigured() {
+  if (!checkoutConfigPromise) {
+    checkoutConfigPromise = fetch('/api/health')
+      .then((r) => (r.ok ? r.json() : {}))
+      .then((d) => !!d.checkout)
+      .catch(() => false);
+  }
+  return checkoutConfigPromise;
+}
+
+// Test-only: forces the next fetchCheckoutConfigured() call to re-fetch
+// instead of reusing a cached result from an earlier test/page session.
+export function _resetCheckoutConfigCacheForTests() {
+  checkoutConfigPromise = null;
 }

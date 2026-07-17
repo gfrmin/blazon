@@ -175,7 +175,7 @@ export default function ShareView({ payload }) {
       {/* The SAME DownloadDialog every other surface uses — recipients can
           buy the $19 unlock for arms made FOR them (M4 makes the paid side
           live; free works now). */}
-      <DownloadDialog open={downloadOpen} onClose={() => setDownloadOpen(false)} design={coat} surface="recipient" />
+      <DownloadDialog open={downloadOpen} onClose={() => setDownloadOpen(false)} design={coat} surface="recipient" hasAchievement={coat ? hasAchievement(coat) : false} />
     </div>
   );
 }

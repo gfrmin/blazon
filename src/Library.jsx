@@ -9,6 +9,7 @@ import { useMediaQuery } from './useMediaQuery.js';
 import { navigate } from './router.js';
 import { listDesigns, deleteDesign } from './library.js';
 import { encodeCoat } from './share/codec.js';
+import { hasAchievement } from './heraldry.js';
 
 const LOGO = (
   <svg width="26" height="30" viewBox="0 0 30 34">
@@ -58,7 +59,7 @@ function EmptyState({ onOpenStudio }) {
 export default function Library({ onOpenStudio, onBack }) {
   const isMobile = useMediaQuery('(max-width: 720px)');
   const [entries, setEntries] = useState(() => listDesigns());
-  const [downloadDesign, setDownloadDesign] = useState(null);
+  const [downloadEntry, setDownloadEntry] = useState(null); // the LibraryEntry currently open in DownloadDialog, or null
 
   const refresh = () => setEntries(listDesigns());
 
@@ -117,7 +118,7 @@ export default function Library({ onOpenStudio, onBack }) {
                       surface="library"
                       trigger={(toggle) => <button onClick={toggle} style={actionBtn}>Share</button>}
                     />
-                    <button onClick={() => setDownloadDesign(entry.envelope.coat)} style={actionBtn}>Download</button>
+                    <button onClick={() => setDownloadEntry(entry)} style={actionBtn}>Download</button>
                     <DeleteAction onConfirm={() => handleDelete(entry.id)} />
                   </div>
                 }
@@ -127,7 +128,14 @@ export default function Library({ onOpenStudio, onBack }) {
         )}
       </div>
 
-      <DownloadDialog open={!!downloadDesign} onClose={() => setDownloadDesign(null)} design={downloadDesign} surface="library" />
+      <DownloadDialog
+        open={!!downloadEntry}
+        onClose={() => setDownloadEntry(null)}
+        design={downloadEntry?.envelope.coat}
+        surface="library"
+        currentId={downloadEntry?.id}
+        hasAchievement={downloadEntry ? hasAchievement(downloadEntry.envelope.coat) : false}
+      />
     </div>
   );
 }

@@ -276,11 +276,19 @@ export function _sanitizeExceptionList(list) {
 //   `outcome`/`part`/`control` above)
 //   (blazon_copied/describe_started/blazon_lang_toggled/landing_viewed/
 //    print_interest_clicked/$pageview/remix_started carry no props at all)
+//   download_opened{surface,edits_count,has_achievement} (task-19 brief §6 —
+//   `edits_count` is a COUNT of design_edited calls since the design was
+//   (re)generated/loaded, `has_achievement` a plain boolean; neither is free
+//   text) checkout_started checkout_completed{value} checkout_abandoned
+//   download_paid_file{format} (task-19 brief §6 — `value` is the FIXED
+//   price in whole currency units, always 19, never an arbitrary amount;
+//   `format` reuses the same enum as download_free/download_error above)
 const OWN_EVENT_PROPS = [
   'source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
   'part', 'control', 'is_first_edit', 'ms_since_submit',
   'query_len', 'hits', 'picked', 'index', 'surface', 'format',
   'on', 'library_size', 'design_code', 'cta',
+  'edits_count', 'has_achievement', 'value',
 ];
 
 // (b) Our super-props — posthog.register()'d in _computeInitialSuperProps

@@ -716,9 +716,31 @@ test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewr
 test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
   for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
     'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
-    'picked', 'index', 'surface', 'format', 'on', 'library_size', 'design_code', 'cta']) {
+    'picked', 'index', 'surface', 'format', 'on', 'library_size', 'design_code', 'cta',
+    'edits_count', 'has_achievement', 'value']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
+});
+
+// task-19 brief §6 — the revenue funnel's own props survive the allowlist
+// (whole-payload equality, not a substring grep — see the file header's
+// "PRIVACY ARCHITECTURE" note): download_opened's edits_count/has_achievement
+// are a count and a boolean, never free text; checkout_completed's value is
+// the fixed $19 price, never an arbitrary/attacker-controlled amount.
+test('sanitizeEvent: download_opened{surface,edits_count,has_achievement} survives whole', () => {
+  const event = { event: 'download_opened', properties: { surface: 'header', edits_count: 4, has_achievement: true } };
+  assert.deepEqual(sanitizeEvent(event, ORIGIN).properties, { surface: 'header', edits_count: 4, has_achievement: true });
+});
+
+test('sanitizeEvent: checkout_completed{value:19} survives whole; a hypothetical extra free-text prop does not', () => {
+  const event = { event: 'checkout_completed', properties: { value: 19, description: 'a very secret family story' } };
+  assert.deepEqual(sanitizeEvent(event, ORIGIN).properties, { value: 19 });
+});
+
+test('sanitizeEvent: download_paid_file{format} and checkout_started/checkout_abandoned (no props) all pass cleanly', () => {
+  assert.deepEqual(sanitizeEvent({ event: 'download_paid_file', properties: { format: 'pdf' } }, ORIGIN).properties, { format: 'pdf' });
+  assert.deepEqual(sanitizeEvent({ event: 'checkout_started', properties: {} }, ORIGIN).properties, {});
+  assert.deepEqual(sanitizeEvent({ event: 'checkout_abandoned', properties: {} }, ORIGIN).properties, {});
 });
 
 // shared_view_opened{design_code} / share_opened|share_link_copied|
