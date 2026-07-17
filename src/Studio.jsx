@@ -306,15 +306,27 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   // whether it already reported a pick, so closing the picker afterwards
   // doesn't double-report the same session as an abandon.
   const searchHits = (q) => catalogKeys.filter((k) => k.includes(q.trim().toLowerCase()));
+  // pickFromSearch is guarded by searchPickedRef too (not just set by it) —
+  // picking a second result from the same search session must not re-report
+  // picked:true (review round 1, Finding 4).
   const pickFromSearch = (k) => {
-    searchPickedRef.current = true;
-    track('charge_search_used', { query_len: chargeQuery.trim().length, hits: searchHits(chargeQuery).length, picked: true });
+    if (!searchPickedRef.current) {
+      searchPickedRef.current = true;
+      track('charge_search_used', { query_len: chargeQuery.trim().length, hits: searchHits(chargeQuery).length, picked: true });
+    }
     apply(setCharge, 'symbol', 'search', k);
   };
+  // Clears chargeQuery (and the picked flag) once the session is reported —
+  // closing the picker again with no new input then hits the `!q` guard
+  // instead of re-reporting the same query as a fresh abandon (review round
+  // 1, Finding 4: reopen→close with no new typing used to double-fire).
   const endChargeSearch = () => {
     const q = chargeQuery.trim();
-    if (!q || searchPickedRef.current) return; // no query typed, or already reported at pick time
-    track('charge_search_used', { query_len: q.length, hits: searchHits(q).length, picked: false });
+    if (q && !searchPickedRef.current) {
+      track('charge_search_used', { query_len: q.length, hits: searchHits(q).length, picked: false });
+    }
+    setChargeQuery('');
+    searchPickedRef.current = false;
   };
 
   const Swatches = ({ names, active, onPick }) => (

@@ -77,7 +77,10 @@ export function SubLabel({ children, style }) {
 // depth is reached in context, never via a mode switch.
 export function Disclosure({ label, openLabel, children, defaultOpen = false, onToggle }) {
   const [open, setOpen] = useState(defaultOpen);
-  const toggle = () => setOpen((o) => { const next = !o; onToggle?.(next); return next; });
+  // Not a functional setOpen(o => ...) updater: onToggle is a side effect
+  // (it fires charge_search_used), and StrictMode double-invokes updater
+  // functions, which would double-fire it (review round 1, Finding 3).
+  const toggle = () => { const next = !open; onToggle?.(next); setOpen(next); };
   return (
     <div>
       <button

@@ -3,6 +3,7 @@ import Landing from './Landing.jsx';
 import Studio from './Studio.jsx';
 import { useRoute, navigate } from './router.js';
 import { decodeCoat } from './share/codec.js';
+import { setSuperProps } from './analytics.js';
 
 // Source handoff for the `studio_opened` event (task-7 brief §2). Landing's
 // several CTAs each know which surface opened the Studio; a bare navigate()
@@ -52,7 +53,15 @@ function ShareArrival({ payload }) {
         if (cancelled) return;
         setCoat(decoded);
         // Analytics super-prop (task-7 brief §1): booting from a /a/ share link.
+        // Set both the persisted flag (read by _computeInitialSuperProps on a
+        // future load) AND the live super-prop directly (review round 1,
+        // Finding 2) — this component client-side-navigates into Studio with
+        // no reload, so analytics.js's module-eval snapshot of sessionStorage
+        // is already stale by the time this runs; without the direct call
+        // here, arrived_via_share stays false for the entire session it's
+        // meant to describe.
         try { sessionStorage.setItem('blazon:arrived_via_share', '1'); } catch { /* storage unavailable */ }
+        setSuperProps({ arrived_via_share: true });
         navigate('/studio#' + payload, { replace: true });
       })
       .catch(() => {
