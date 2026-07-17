@@ -195,6 +195,42 @@ test('setSupporterSide materialises sinister from dexter on first split; later e
   assert.equal(supporters(dexterEdited).sinister.object.key, 'wolf'); // sinister untouched by the dexter-only edit
 });
 
+test('setSupporterSide deep-clones nested object; partial patch does not alias sinister.object to dexter.object', () => {
+  // Materialise sinister with a partial patch (only tincture, no object).
+  // This is the natural UI action: change the sinister tincture while keeping the charge.
+  const matched = setSupporters(plain('Azure'), 'lion');
+  const split = setSupporterSide(matched, 'sinister', { tincture: 'Argent' });
+
+  // Both sides should have lion (dexter seeded it, sinister cloned it).
+  assert.equal(supporters(split).dexter.object.key, 'lion');
+  assert.equal(supporters(split).sinister.object.key, 'lion');
+
+  // Critical: sinister.object must NOT be the same reference as dexter.object.
+  assert.notStrictEqual(
+    supporters(split).sinister.object,
+    supporters(split).dexter.object,
+    'sinister.object and dexter.object must be separate instances, not aliased'
+  );
+
+  // Deep-decouple proof: mutate one side's object and verify the other is unaffected.
+  const dexterObj = supporters(split).dexter.object;
+  dexterObj.attitude = 'passant'; // mutate dexter's object in place
+
+  // sinister's object should still be 'rampant' (lion's default), untouched by the mutation.
+  assert.equal(
+    supporters(split).sinister.object.attitude,
+    'rampant',
+    'sinister.object.attitude must be unaffected by direct mutation of dexter.object'
+  );
+
+  // Subsequent edit to dexter must leave sinister's tincture/object unchanged.
+  const dexterRetinted = setSupporterSide(split, 'dexter', { tincture: 'Or' });
+  assert.equal(supporters(dexterRetinted).dexter.tincture, 'Or');
+  assert.equal(supporters(dexterRetinted).dexter.object.key, 'lion');
+  assert.equal(supporters(dexterRetinted).sinister.tincture, 'Argent'); // sinister tincture unchanged
+  assert.equal(supporters(dexterRetinted).sinister.object.key, 'lion'); // sinister object unchanged
+});
+
 test('setSupporterSide is a no-op (but still returns a new object) when there are no supporters yet', () => {
   const before = plain('Azure');
   const c = setSupporterSide(before, 'sinister', { tincture: 'Or' });

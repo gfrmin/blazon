@@ -212,7 +212,7 @@ export function setSupporterSide(coat, side, patch) {
   const supp = A(c).supporters;
   if (!supp || !supp.dexter) return { ...c }; // nothing to diverge from yet
   const base = supp[side] ?? supp.dexter;
-  return withPart(c, 'supporters', { ...supp, [side]: { ...base, ...patch } });
+  return withPart(c, 'supporters', { ...supp, [side]: { ...base, object: base.object ? { ...base.object } : base.object, ...patch } });
 }
 export const clearSupporters = (coat) => withoutPart(coat, 'supporters');
 
