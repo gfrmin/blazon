@@ -13,32 +13,74 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { TINCTURE_ORDER, FURS } from '../../src/model/tinctures.js';
-import { ORDINARIES } from '../../src/model/ordinaries.js';
-import { SUBORDINARIES } from '../../src/model/ordinaries.js';
-import { DIVISION_ORDER } from '../../src/model/field.js';
 import { CHARGES, ATTITUDES } from '../../src/model/charges.js';
+import { withDefaultAchievement } from '../../src/model/achievement.js';
+import { HELMETS as VENDORED_HELMETS } from '../../src/achievement-art/manifest.js';
+import { LOCAL_DIVISIONS, LOCAL_ORDINARIES } from '../../src/render-capabilities.js';
 import catalog from '../../src/charges/catalog.js';
 import { json } from '../_lib/http.js';
 import { verifyTurnstile } from '../_lib/turnstile.js';
 import { checkRates } from '../_lib/ratelimit.js';
 
 const TINCTURES_ENUM = [...TINCTURE_ORDER, ...FURS, 'proper'];
-const ORDINARY_KEYS = [...Object.keys(ORDINARIES), ...Object.keys(SUBORDINARIES)];
 const ATTITUDE_KEYS = Object.keys(ATTITUDES);
+// Ordinaries only — Shield.jsx draws zero subordinaries locally today (see
+// render-capabilities.js's canRenderLocally, `kind === 'subordinary'` always
+// defers to DrawShield), so the generation vocabulary excludes subordinaries
+// outright rather than promising a kind Claude could pick that never renders
+// locally.
+const ORDINARY_KEYS = LOCAL_ORDINARIES;
+// Helm styles, derived from the actually-vendored achievement art (not
+// hand-copied) — so if a helmet variant is ever added/removed from
+// src/achievement-art/, this enum tracks it automatically.
+const HELM_STYLES = VENDORED_HELMETS.map((h) => h.key);
+
+// A supporter (dexter or sinister): same shape for both, so this is a factory
+// (not a shared object literal) purely for readability at each call site.
+const SUPPORTER_SCHEMA = () => ({
+  type: 'object',
+  properties: {
+    tincture: { type: 'string', enum: TINCTURES_ENUM },
+    object: {
+      type: 'object',
+      properties: {
+        key: { type: 'string', description: 'Lowercase, hyphenated charge key — usually a beast in a rampant attitude.' },
+        attitude: { type: 'string', enum: ATTITUDE_KEYS },
+      },
+      required: ['key'],
+    },
+  },
+  required: ['tincture', 'object'],
+});
 
 // Normalize a charge term to a catalog slug ("Oak Tree" → "oak-tree").
 const slug = (s) => String(s || '').toLowerCase().trim().replace(/[\s_]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-');
 
-// Map Claude's charge terms onto the ~2,100-charge R2 catalog where possible, so
-// they render natively; anything unmatched stays as-is and renders via the
-// DrawShield fallback (which understands the blazon term).
+// Map a single charge object's key onto the ~2,100-charge R2 catalog where
+// possible, so it renders natively; anything unmatched stays as-is and renders
+// via the DrawShield fallback (which understands the blazon term). Ordinaries/
+// subordinaries (an explicit `kind` other than 'charge') are left untouched —
+// crest/supporter objects never carry `kind` (they're implicitly a charge), so
+// only skip when `kind` is present and says otherwise.
+function resolveChargeObject(o) {
+  if (!o || (o.kind && o.kind !== 'charge')) return;
+  if (catalog[o.key] || CHARGES[o.key]) return; // already a catalog or curated key
+  const s = slug(o.key);
+  if (catalog[s]) o.key = s;
+}
+
+// Walk every charge-bearing object in the design — shield charges, plus the
+// achievement's crest and both supporters — and resolve each to a catalog
+// slug where possible. Unmatched keys pass through untouched.
 function resolveCharges(design) {
-  for (const g of design.charges || []) {
-    const o = g.object;
-    if (!o || o.kind !== 'charge') continue;
-    if (catalog[o.key] || CHARGES[o.key]) continue; // already a catalog or curated key
-    const s = slug(o.key);
-    if (catalog[s]) o.key = s;
+  for (const g of design.charges || []) resolveChargeObject(g.object);
+  const a = design.achievement;
+  if (a) {
+    if (a.crest) resolveChargeObject(a.crest.object);
+    if (a.supporters) {
+      if (a.supporters.dexter) resolveChargeObject(a.supporters.dexter.object);
+      if (a.supporters.sinister) resolveChargeObject(a.supporters.sinister.object);
+    }
   }
   return design;
 }
@@ -57,14 +99,13 @@ const DESIGN_TOOL = {
     properties: {
       field: {
         type: 'object',
-        description: 'Either a single tincture, or a division.',
+        description: 'Either a single tincture, or a division. Only straight lines of partition render locally — do not describe a fancy (wavy/engrailed/…) line.',
         properties: {
           tincture: { type: 'string', enum: TINCTURES_ENUM },
           division: {
             type: 'object',
             properties: {
-              type: { type: 'string', enum: DIVISION_ORDER },
-              line: { type: 'string' },
+              type: { type: 'string', enum: LOCAL_DIVISIONS },
               tinctures: { type: 'array', items: { type: 'string', enum: TINCTURES_ENUM }, minItems: 2, maxItems: 2 },
             },
             required: ['type', 'tinctures'],
@@ -84,10 +125,10 @@ const DESIGN_TOOL = {
             object: {
               type: 'object',
               properties: {
-                kind: { type: 'string', enum: ['ordinary', 'subordinary', 'charge'] },
+                kind: { type: 'string', enum: ['ordinary', 'charge'] },
                 key: {
                   type: 'string',
-                  description: `Lowercase, hyphenated. For an ordinary/subordinary use one of: ${ORDINARY_KEYS.join(', ')}. For a charge, use any standard heraldic charge as a hyphenated term — e.g. lion-rampant, eagle, wolf, stag, griffin, oak-tree, escallop, anchor, rose, fleur-de-lys, sun-in-splendour, mullet, crescent, tower, sword, harp, garb, martlett. A library of ~2,000 charges is available; pick the most specific real heraldic charge.`,
+                  description: `Lowercase, hyphenated. For an ordinary use one of: ${ORDINARY_KEYS.join(', ')} (the only ones that render locally). For a charge, use any standard heraldic charge as a hyphenated term — e.g. lion-rampant, eagle, wolf, stag, griffin, oak-tree, escallop, anchor, rose, fleur-de-lys, sun-in-splendour, mullet, crescent, tower, sword, harp, garb, martlett. A library of ~2,000 charges is available; pick the most specific real heraldic charge.`,
                 },
                 attitude: { type: 'string', enum: ATTITUDE_KEYS },
               },
@@ -97,14 +138,72 @@ const DESIGN_TOOL = {
           required: ['role', 'number', 'tincture', 'object'],
         },
       },
+      achievement: {
+        type: 'object',
+        description: 'Optional — the full achievement surrounding the shield (crest on a helm and torse, mantling, and supporters). Omit entirely for a shield-only design; any omitted part is filled in with a sensible default automatically.',
+        properties: {
+          crest: {
+            type: 'object',
+            description: 'The device standing on the torse above the helm. Reuses the shield-charge vocabulary; only renders if the chosen charge has vendored art (falls back to a lion rampant otherwise), so prefer a real heraldic beast or object.',
+            properties: {
+              tincture: { type: 'string', enum: TINCTURES_ENUM },
+              object: {
+                type: 'object',
+                properties: {
+                  key: { type: 'string', description: 'Lowercase, hyphenated charge key — same vocabulary as a shield charge.' },
+                  attitude: { type: 'string', enum: ATTITUDE_KEYS },
+                },
+                required: ['key'],
+              },
+            },
+            required: ['tincture', 'object'],
+          },
+          helm: {
+            type: 'object',
+            description: 'The helmet rank. Pick esquire unless the description clearly implies a title.',
+            properties: {
+              style: { type: 'string', enum: HELM_STYLES },
+            },
+            required: ['style'],
+          },
+          torse: {
+            type: 'object',
+            description: 'The twisted band of cloth atop the helm, as [metal, colour].',
+            properties: {
+              tinctures: { type: 'array', items: { type: 'string', enum: TINCTURES_ENUM }, minItems: 2, maxItems: 2 },
+            },
+            required: ['tinctures'],
+          },
+          mantling: {
+            type: 'object',
+            description: 'The cloth draped from the helm, as [colour, metal].',
+            properties: {
+              tinctures: { type: 'array', items: { type: 'string', enum: TINCTURES_ENUM }, minItems: 2, maxItems: 2 },
+            },
+            required: ['tinctures'],
+          },
+          supporters: {
+            type: 'object',
+            description: 'Figures flanking the shield. Omit sinister for a matched (mirrored) pair; omit supporters entirely if they add nothing to the story.',
+            properties: {
+              dexter: SUPPORTER_SCHEMA(),
+              sinister: SUPPORTER_SCHEMA(),
+            },
+            required: ['dexter'],
+          },
+        },
+      },
       motto: { type: 'string' },
       rationale: {
         type: 'object',
-        description: 'Friendly, jargon-free one-liners shown beside the design.',
+        description: 'Friendly, jargon-free one-liners shown beside the design. Only include crest/supporters/motto entries if you actually designed those achievement parts.',
         properties: {
           field: { type: 'string' },
           ordinary: { type: 'string' },
           charges: { type: 'string' },
+          crest: { type: 'string' },
+          supporters: { type: 'string' },
+          motto: { type: 'string' },
         },
         required: ['field', 'ordinary', 'charges'],
       },
@@ -119,7 +218,8 @@ Rules:
 - Pick tinctures, an ordinary (the primary structure), and at most one charge group that genuinely reflect the person — place, work, character, values.
 - A large heraldic charge library (~2,000 charges) is available — choose the most fitting SPECIFIC charge (e.g. a stag for a hunter, a garb (wheatsheaf) for a farmer, an anchor for a sailor, a harp for Ireland, an oak-tree for endurance), not just a generic shape. Use lowercase hyphenated charge keys; for animals pick a posture variant (e.g. lion-rampant, lion-passant).
 - Keep it simple and legible: one field (or one division), one ordinary, at most one charge group.
-- Write a short motto and a warm, jargon-free one-sentence rationale for the field, the ordinary, and the charge.
+- You may also design the achievement around the shield: a crest on the helm/torse, mantling, and (only when the story genuinely calls for it) supporters. This is optional — omit the whole achievement, or any part of it, whenever it wouldn't add anything; a plain shield is a fine, complete answer.
+- Write a short motto and a warm, jargon-free one-sentence rationale for each part you actually designed (field, ordinary, and charge always; crest/supporters/motto only if used).
 Return everything via the render_arms tool.`;
 
 export async function onRequestPost(context) {
@@ -162,7 +262,7 @@ export async function onRequestPost(context) {
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
+        max_tokens: 2048,
         system: SYSTEM,
         tools: [DESIGN_TOOL],
         tool_choice: { type: 'tool', name: 'render_arms' },
@@ -179,5 +279,13 @@ export async function onRequestPost(context) {
   const tool = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'render_arms');
   if (!tool || !tool.input || !tool.input.field) return json({ error: 'no_design' }, 502);
 
-  return json({ design: resolveCharges(tool.input) });
+  // Resolve charge terms to catalog slugs BEFORE backfilling, so a default
+  // crest/supporters that echoes the coat's principal charge (see
+  // withDefaultAchievement) sees the already-resolved key. Backfill guarantees
+  // a full achievement even when Claude omits it (or parts of it).
+  return json({ design: withDefaultAchievement(resolveCharges(tool.input)) });
 }
+
+// Exported for tests only (schema enum-derivation checks, resolveCharges unit
+// tests) — onRequestPost above is the only production entry point.
+export { DESIGN_TOOL, resolveCharges, ORDINARY_KEYS, HELM_STYLES };

@@ -1,44 +1,20 @@
 import React, { useId } from 'react';
-import { TINCTURES, tinctureHex, blazon, normalize } from './heraldry.js';
+import { TINCTURES, tinctureHex, blazon } from './heraldry.js';
 import { hasArt, artFile } from './charges/manifest.js';
 import { useCharge } from './charges/recolor.js';
+import { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally } from './render-capabilities.js';
 
 const SHIELD_PATH =
   'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
 
 // What this SVG renderer can draw natively — the SINGLE source of truth for
-// local-render capability. `OrdinaryEl` / `ChargeShape` / `DivisionEls` below
-// handle exactly these keys, and `canRenderLocally()` reads the same lists, so
-// the Studio's "fall back to DrawShield?" decision can never drift from reality.
-export const LOCAL_DIVISIONS = ['per pale', 'per fess', 'quarterly', 'per bend', 'per bend sinister', 'per saltire', 'per chevron'];
-export const LOCAL_ORDINARIES = ['fess', 'pale', 'bend', 'cross', 'chevron', 'saltire'];
-export const LOCAL_CHARGES = ['roundel', 'lozenge', 'crescent', 'mullet'];
-
-/**
- * Can the local SVG engine draw this design faithfully? (Else the caller should
- * use the DrawShield bridge.) Conservative: lines of partition, field
- * treatments, subordinaries, marshalling, and any charge/ordinary outside the
- * LOCAL_* sets all defer to DrawShield.
- */
-export function canRenderLocally(design) {
-  const coat = normalize(design);
-  if (!coat) return true;
-  if (coat.marshalling) return false;
-  const f = coat.field || {};
-  if (f.treatment) return false;
-  if (f.division) {
-    if (!LOCAL_DIVISIONS.includes(f.division.type)) return false;
-    if (f.division.line && f.division.line !== 'straight') return false;
-  }
-  for (const g of coat.charges || []) {
-    const o = g.object || {};
-    if (o.line && o.line !== 'straight') return false;
-    if (o.kind === 'ordinary' && !LOCAL_ORDINARIES.includes(o.key)) return false;
-    if (o.kind === 'subordinary') return false; // none drawn locally yet
-    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
-  }
-  return true;
-}
+// local-render capability now lives in ./render-capabilities.js (so it can
+// also be imported by the generation Pages Function without pulling in React
+// or JSX). `OrdinaryEl` / `ChargeShape` / `DivisionEls` below handle exactly
+// the LOCAL_* keys re-exported here; `canRenderLocally()` reads the same
+// lists, so the Studio's "fall back to DrawShield?" decision can never drift
+// from reality.
+export { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally };
 
 // 5-point star points for a mullet.
 function starPoints(cx, cy, r) {

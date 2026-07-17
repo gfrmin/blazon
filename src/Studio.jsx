@@ -14,7 +14,7 @@ import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
   CHARGES, CHARGE_ORDER, ATTITUDES, validAttitudesFor,
-  blazon, computeWarn, cap, PRESETS, pickPreset, drawShieldURL,
+  blazon, computeWarn, cap, PRESETS, pickPreset, drawShieldURL, withDefaultAchievement,
   // Coat selectors + mutators (the single home for AST edits)
   fieldTincture, isDivided, division, primaryGroup, chargeGroup,
   setFieldTincture, setDivision, clearDivision, setDivisionPart, setDivisionLine,
@@ -142,7 +142,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     const fromAi = !!next;
     if (!next) {
       const p = pickPreset(desc, selectedPreset);
-      next = JSON.parse(JSON.stringify(p.design));
+      // Canned presets predate the achievement model — backfill so the
+      // fallback path also produces a full achievement, same as the AI path
+      // (generate.js runs withDefaultAchievement() server-side).
+      next = withDefaultAchievement(JSON.parse(JSON.stringify(p.design)));
     }
     const elapsed = Date.now() - started; // hold the spinner briefly so it never flashes
     if (elapsed < 900) await new Promise((res) => setTimeout(res, 900 - elapsed));
