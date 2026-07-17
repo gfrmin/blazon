@@ -116,7 +116,16 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     setLang('plain');
     setStep('design');
   };
-  const restart = () => { setStep('describe'); setDesign(null); setDesc(''); setSelectedPreset(null); };
+  const restart = () => {
+    setStep('describe');
+    setDesign(null);
+    setDesc('');
+    setSelectedPreset(null);
+    navigate('/studio', { replace: true });
+    try {
+      localStorage.removeItem(AUTOSAVE_KEY);
+    } catch { /* storage unavailable — ignored silently */ }
+  };
 
   // Every edit funnels through a coat.js mutator — one code path, immutable.
   const apply = (fn, ...args) => setDesign((d) => fn(d, ...args));

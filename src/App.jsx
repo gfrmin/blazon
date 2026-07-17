@@ -15,8 +15,7 @@ export default function App() {
     return <ShareArrival payload={path.slice(3)} />;
   }
 
-  // TODO(/a/ presentation view — task M3): /library is a placeholder that
-  // reuses Landing until the dedicated gallery view lands.
+  // TODO(M3): /library view
   if (path === '/library') {
     return <Landing onOpenStudio={() => navigate('/studio')} />;
   }
