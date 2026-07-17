@@ -716,7 +716,7 @@ test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewr
 test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
   for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
     'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
-    'picked', 'index', 'surface', 'format']) {
+    'picked', 'index', 'surface', 'format', 'on']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
 });

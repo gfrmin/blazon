@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
+import Achievement from './Achievement.jsx';
 import Turnstile, { turnstileConfigured } from './components/Turnstile.jsx';
 import DownloadDialog from './components/DownloadDialog.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
+import { GildedRule } from './components/Ornament.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
@@ -13,7 +15,8 @@ import { track } from './analytics.js';
 import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
-  CHARGES, CHARGE_ORDER, ATTITUDES, validAttitudesFor,
+  CHARGES, CHARGE_ORDER, ATTITUDES, validAttitudesFor, defaultAttitudeFor,
+  HELMETS,
   blazon, computeWarn, cap, PRESETS, pickPreset, drawShieldURL, withDefaultAchievement,
   // Coat selectors + mutators (the single home for AST edits)
   fieldTincture, isDivided, division, primaryGroup, chargeGroup,
@@ -21,6 +24,14 @@ import {
   setOrdinary, clearOrdinary, setOrdinaryTincture, setOrdinaryLine,
   setCharge, clearCharge, setChargeTincture, setChargeAttitude, setChargeNumber, setArrangement,
   setMotto,
+  // Achievement selectors + mutators (Task 9/11) — the single home for
+  // achievement-part edits, same immutable-edit vocabulary as the shield above.
+  crest, helm, torse, mantling, supporters, compartment, hasAchievement,
+  setCrest, setCrestTincture, setCrestAttitude, clearCrest,
+  setHelm, setTorse, setMantling,
+  setSupporters, setSupporterSide, clearSupporters,
+  setCompartment, clearCompartment,
+  restoreFullAchievement, stripAchievement,
 } from './heraldry.js';
 
 const LOGO = (
@@ -41,6 +52,80 @@ const CHARGES_BY_CATEGORY = CHARGE_CATEGORIES
   .map((cat) => [cat, Object.keys(CHARGES).filter((k) => CHARGES[k].category === cat)])
   .filter(([, keys]) => keys.length);
 const ARRANGEMENTS = ['in pale', 'in fess', 'in chief'];
+// Beasts — the classic "crest"/"supporter" figure; reused as the quick-pick
+// list for both. Ascending helm rank (achievement.js's HELMETS `tier`).
+const BEASTS = (CHARGES_BY_CATEGORY.find(([catName]) => catName === 'beast') || [null, []])[1];
+const HELM_ORDER = ['esquire', 'knight', 'baronet', 'peer', 'royal'];
+
+// Static herald one-liners — shown when generation didn't supply a per-part
+// rationale (task-14 brief §2, forward-note "Rationale copy").
+const CREST_FALLBACK_RATIONALE = 'The figure that crowns the helm — the last flourish above the shield.';
+const SUPPORTERS_FALLBACK_RATIONALE = 'The figures who hold the shield up — an honour once reserved for the few. Yours to bestow.';
+const CHAPTER_INTRO = 'A shield rarely rides alone — crest, supporters and motto complete the achievement. Keep them, change them, or set them aside.';
+
+// ── Shared card styling (hoisted so PartCard/GhostRow — MODULE-level
+//    components, see below — can use them; also reused inline by the design
+//    step for one-off blocks). ──
+const cardStyle = { background: C.ink, border: `1px solid ${C.lineMid}`, borderRadius: 12, padding: 18, marginBottom: 14 };
+const cardTagStyle = { fontSize: 11.5, letterSpacing: '1.6px', color: 'rgba(201,162,75,.85)', fontWeight: 600 };
+const rationaleStyle = { fontSize: 13, color: C.muted, lineHeight: 1.5, margin: '0 0 13px' };
+const valueStyle = { fontFamily: F.serif, fontStyle: 'italic', fontSize: 16, color: C.cream };
+const pillRow = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 };
+
+// ── PartCard — the header+value+rationale+controls pattern shared by every
+// card in both chapters (task-14 brief §2, "PartCard extraction"). MUST be a
+// MODULE-level component (not defined inside Studio()) — Studio() re-renders
+// on every edit, and a component redefined on every render gets a fresh
+// function identity each time, which React treats as a different component
+// type: any Disclosure nested in `children` would then remount (losing its
+// open/closed state) on every keystroke. Kept faithful to the pre-extraction
+// markup exactly: when `onSetAside` is omitted (THE SHIELD's three cards),
+// the header renders the SAME two bare <span>s as before — no wrapping div,
+// no behavioural or DOM change for FIELD/STRUCTURE/SYMBOL.
+function PartCard({ tag, valueText, rationale, onSetAside, children }) {
+  return (
+    <div style={cardStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={cardTagStyle}>{tag}</span>
+        {onSetAside ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={valueStyle}>{valueText}</span>
+            <button onClick={onSetAside} style={{ background: 'none', border: 'none', color: 'rgba(236,230,216,.45)', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Set aside</button>
+          </div>
+        ) : (
+          <span style={valueStyle}>{valueText}</span>
+        )}
+      </div>
+      <p style={rationaleStyle}>{rationale}</p>
+      {children}
+    </div>
+  );
+}
+
+// The collapsed state of a "Set aside"-able card: a slim ghost row (task-14
+// brief §2). Also module-level, for the same remount-safety reason as PartCard.
+function GhostRow({ tag, onRestore }) {
+  return (
+    <div style={{ border: `1px dashed ${C.lineMid}`, borderRadius: 12, padding: '14px 18px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <span style={cardTagStyle}>{tag}</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <span style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 14, color: C.muted2 }}>None</span>
+        <button onClick={onRestore} style={{ background: 'none', border: 'none', color: '#C9A24B', fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Restore</button>
+      </div>
+    </div>
+  );
+}
+
+// A gilded rule + a small label — the chapter divider between THE SHIELD and
+// AROUND THE SHIELD (task-14 brief §2).
+function ChapterRule({ label }) {
+  return (
+    <div style={{ margin: '30px 0 16px' }}>
+      <GildedRule maxWidth={200} />
+      <div style={{ textAlign: 'center', fontSize: 11, letterSpacing: '2.6px', color: 'rgba(201,162,75,.7)', fontWeight: 600, marginTop: 9 }}>{label}</div>
+    </div>
+  );
+}
 
 const AUTOSAVE_KEY = 'blazon:current';
 // Read once on mount, then cleared — set by App.jsx's openStudio() before
@@ -298,11 +383,65 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const div = design ? division(design) : null;
   const divided = design ? isDivided(design) : false;
 
-  const cardStyle = { background: C.ink, border: `1px solid ${C.lineMid}`, borderRadius: 12, padding: 18, marginBottom: 14 };
-  const cardTag = { fontSize: 11.5, letterSpacing: '1.6px', color: 'rgba(201,162,75,.85)', fontWeight: 600 };
-  const rationale = { fontSize: 13, color: C.muted, lineHeight: 1.5, margin: '0 0 13px' };
-  const value = { fontFamily: F.serif, fontStyle: 'italic', fontSize: 16, color: C.cream };
-  const pillRow = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 };
+  // ── Achievement — derived values for the AROUND THE SHIELD chapter. Full
+  // by default (every generated/preset design already carries one); `false`
+  // only after the chapter-level "Just the shield" strip. Fallbacks
+  // (`|| {…}`) guard the rare shape where crest exists but helm/torse/
+  // mantling don't (no UI path produces this today, but a hand-crafted/
+  // decoded share link could) — never crash the "more…" disclosure. ──
+  const showAchievement = design ? hasAchievement(design) : false;
+  const crestG = design ? crest(design) : null;
+  const helmG = (design && helm(design)) || { style: 'esquire' };
+  const torseG = (design && torse(design)) || { tinctures: ['Or', 'Gules'] };
+  const mantlingG = (design && mantling(design)) || { tinctures: ['Gules', 'Or'] };
+  const suppG = design ? supporters(design) : null;
+  const sinisterG = suppG ? (suppG.sinister || suppG.dexter) : null;
+
+  // Achievement-part edits use the same one-liner `apply()` for design_edited
+  // (part ∈ crest|helm|torse|mantling|supporters|compartment), but Set
+  // aside/Restore/Just-the-shield are their OWN taxonomy events (task-14
+  // brief §3) — dedicated call-sites, not folded into apply()/design_edited.
+  const setAsidePart = (part, clearFn) => {
+    setDesign((d) => clearFn(d));
+    track('achievement_part_removed', { part });
+  };
+  // Restore always re-seeds via restoreFullAchievement (coat.js) — it only
+  // fills parts that are MISSING, so restoring one just-cleared part never
+  // overwrites any other part that's still set (forward-note: "Restore
+  // re-seeds via the relevant set* default").
+  const restorePart = (part) => {
+    setDesign((d) => restoreFullAchievement(d));
+    track('achievement_part_restored', { part });
+  };
+  const toggleJustShield = () => {
+    if (hasAchievement(design)) {
+      setDesign((d) => stripAchievement(d));
+      track('just_shield_toggled', { on: true });
+    } else {
+      setDesign((d) => restoreFullAchievement(d));
+      track('just_shield_toggled', { on: false });
+    }
+  };
+
+  // ── Preview shield slot — the achievement's escutcheon inset. When the
+  // design draws locally, `null` lets <Achievement> render its own <Shield>
+  // (instant, no debounce — task-14 brief §1's hard requirement). An
+  // out-of-vocab escutcheon needs the SAME debounce/onError/note behaviour
+  // the plain shield-only preview below already has (the public DrawShield
+  // API is rate-limited — never fetch on every edit) — <Achievement>'s own
+  // built-in fallback has no debounce, so this overrides its `shieldSlot`
+  // with Studio's existing `dsUrl`/`dsFailed` state instead of duplicating
+  // that machinery inside the composition. `<image>` (SVG), not an HTML
+  // <img> — this renders as a direct child of an <svg>. An empty <g/> during
+  // the pending 600ms window blocks <Achievement>'s own undebounced default
+  // (passing `null` here would fall through to it) without hammering the API.
+  const shieldSlot = design && !local
+    ? (dsFailed
+      ? <Shield design={design} width="100%" ariaHidden />
+      : dsUrl
+        ? <image href={dsUrl} x={0} y={0} width={200} height={240} onError={() => setDsFailed(true)} />
+        : <g />)
+    : null;
 
   // Charge search + charge_search_used (task-7 brief §2). A "session" is
   // scoped to the current (non-empty) chargeQuery; searchPickedRef tracks
@@ -367,7 +506,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
         {/* Left — live preview. On mobile during the describe step there is nothing to
             preview yet, so the prompt (aside) leads and the empty preview follows. */}
-        <div style={{ flex: isMobile ? 'none' : 1, order: isMobile && step === 'describe' ? 2 : 1, height: isMobile ? 320 : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ flex: isMobile ? 'none' : 1, order: isMobile && step === 'describe' ? 2 : 1, height: isMobile ? 'auto' : undefined, minHeight: isMobile ? 300 : undefined, maxHeight: isMobile ? '62vh' : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
           <div style={{ position: 'absolute', top: 20, left: 24, fontSize: 11, letterSpacing: '2.5px', color: 'rgba(201,162,75,.7)', fontWeight: 600 }}>LIVE PREVIEW</div>
 
           {!generating && !design && (
@@ -384,7 +523,30 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
             </div>
           )}
 
-          {!generating && design && (
+          {!generating && design && showAchievement && (
+            // The default path — every generated/preset design is a full
+            // achievement. Local parts (mantling/helm/torse/crest/
+            // supporters/motto scroll) always render synchronously; only the
+            // escutcheon INSIDE it can ever defer to DrawShield (shieldSlot,
+            // above) — no debounce machinery gates this outer swap itself.
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', animation: 'fadein .5s ease' }}>
+              <div style={{ width: isMobile ? 240 : 460 }}>
+                {/* backfill={false}: Studio's `design` already carries the
+                    achievement exactly as the user left it (Set aside/Restore,
+                    Just the shield) — the default auto-fill would silently
+                    re-seed a part the user just cleared (see Achievement.jsx's
+                    docblock). */}
+                <Achievement design={design} shieldSlot={shieldSlot} width="100%" backfill={false} />
+              </div>
+              {!local && dsUrl && !dsFailed && (
+                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
+              )}
+              {/* The motto scroll inside <Achievement> already carries the motto —
+                  no separate caption here (would double-show it; task-14 brief §1). */}
+            </div>
+          )}
+
+          {!generating && design && !showAchievement && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', animation: 'fadein .5s ease' }}>
               <div style={{ width: isMobile ? 188 : 300 }}>
                 {local || dsFailed ? (
@@ -457,14 +619,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 </div>
               )}
 
-              {/* ── Field ── */}
-              <div style={cardStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={cardTag}>THE FIELD</span>
-                  <span style={value}>{divided ? cap(div.type) : fieldTincture(design)}</span>
-                </div>
-                <p style={rationale}>{design.rationale?.field}</p>
+              <ChapterRule label="THE SHIELD" />
 
+              {/* ── Field ── */}
+              <PartCard tag="THE FIELD" valueText={divided ? cap(div.type) : fieldTincture(design)} rationale={design.rationale?.field}>
                 {!divided ? (
                   <>
                     <Swatches names={TINCTURE_ORDER} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, 'field', 'swatch', t)} />
@@ -506,15 +664,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                     </div>
                   </>
                 )}
-              </div>
+              </PartCard>
 
               {/* ── Structure ── */}
-              <div style={cardStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={cardTag}>THE STRUCTURE</span>
-                  <span style={value}>{struct ? cap(struct.object.key) : 'None'}</span>
-                </div>
-                <p style={rationale}>{design.rationale?.ordinary}</p>
+              <PartCard tag="THE STRUCTURE" valueText={struct ? cap(struct.object.key) : 'None'} rationale={design.rationale?.ordinary}>
                 <div style={pillRow}>
                   {ORDINARY_ORDER.map((k) => (
                     <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, 'structure', 'pill', k)}>{cap(k)}</Pill>
@@ -543,15 +696,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                     <Swatches names={TINCTURE_ORDER} active={struct.tincture} onPick={(t) => apply(setOrdinaryTincture, 'structure', 'swatch', t)} />
                   </>
                 )}
-              </div>
+              </PartCard>
 
               {/* ── Symbol ── */}
-              <div style={cardStyle}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <span style={cardTag}>THE SYMBOL</span>
-                  <span style={value}>{chg ? (CHARGES[chg.object.key]?.label || humanize(chg.object.key)) : 'None'}</span>
-                </div>
-                <p style={rationale}>{design.rationale?.charges}</p>
+              <PartCard tag="THE SYMBOL" valueText={chg ? (CHARGES[chg.object.key]?.label || humanize(chg.object.key)) : 'None'} rationale={design.rationale?.charges}>
                 <div style={pillRow}>
                   {CHARGE_ORDER.map((k) => (
                     <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, 'symbol', 'pill', k)}>{CHARGES[k].label}</Pill>
@@ -625,18 +773,148 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                     <Swatches names={TINCTURE_ORDER} active={chg.tincture} onPick={(t) => apply(setChargeTincture, 'symbol', 'swatch', t)} />
                   </>
                 )}
+              </PartCard>
+
+              <ChapterRule label="AROUND THE SHIELD" />
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14, margin: '0 0 18px' }}>
+                <p style={{ fontSize: 13.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: 0, flex: 1 }}>{CHAPTER_INTRO}</p>
+                <button
+                  onClick={toggleJustShield}
+                  style={{ flex: 'none', background: 'none', border: 'none', color: '#C9A24B', fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap', marginTop: 2, fontFamily: F.sans, padding: 0 }}
+                >{showAchievement ? 'Just the shield' : 'Full achievement'}</button>
               </div>
 
               {/* ── Motto ── */}
-              <div style={{ background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 12, padding: 18 }}>
-                <div style={{ ...cardTag, marginBottom: 11 }}>THE MOTTO</div>
+              <PartCard tag="THE MOTTO" valueText={design.motto && design.motto.trim() ? `“${design.motto}”` : 'None'} rationale={design.rationale?.motto}>
                 <input
                   value={design.motto || ''}
                   onChange={(e) => apply(setMotto, 'motto', 'text', e.target.value)}
                   placeholder="A few words they lived by…"
                   style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(201,162,75,.3)', padding: '6px 2px', color: '#ECE6D8', fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19 }}
                 />
-              </div>
+              </PartCard>
+
+              {/* ── Crest & Helm ── */}
+              {crestG ? (
+                <PartCard
+                  tag="CREST & HELM"
+                  valueText={CHARGES[crestG.object.key]?.label || humanize(crestG.object.key)}
+                  rationale={design.rationale?.crest || CREST_FALLBACK_RATIONALE}
+                  onSetAside={() => setAsidePart('crest', clearCrest)}
+                >
+                  <div style={pillRow}>
+                    {BEASTS.map((k) => (
+                      <Pill key={k} active={crestG.object.key === k} onClick={() => apply(setCrest, 'crest', 'pill', k)}>{CHARGES[k].label}</Pill>
+                    ))}
+                  </div>
+                  <Disclosure label="More charges">
+                    {CHARGES_BY_CATEGORY.filter(([catName]) => catName !== 'beast').map(([catName, keys]) => (
+                      <div key={catName} style={{ marginBottom: 10 }}>
+                        <SubLabel style={{ marginBottom: 6, textTransform: 'capitalize' }}>{catName}</SubLabel>
+                        <div style={{ ...pillRow, marginBottom: 0 }}>
+                          {keys.map((k) => (
+                            <Pill key={k} active={crestG.object.key === k} onClick={() => apply(setCrest, 'crest', 'pill', k)}>{CHARGES[k].label}</Pill>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </Disclosure>
+                  {validAttitudesFor(crestG.object.key).length > 0 && (
+                    <div style={{ marginTop: 13 }}>
+                      <SubLabel>Posture</SubLabel>
+                      <div style={pillRow}>
+                        {validAttitudesFor(crestG.object.key).map((a) => (
+                          <Pill key={a} active={crestG.object.attitude === a} onClick={() => apply(setCrestAttitude, 'crest', 'pill', a)} title={ATTITUDES[a]?.plain}>{a}</Pill>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <SubLabel style={{ marginTop: 13 }}>Its colour</SubLabel>
+                  <Swatches names={TINCTURE_ORDER} active={crestG.tincture} onPick={(t) => apply(setCrestTincture, 'crest', 'swatch', t)} />
+                  <div style={{ marginTop: 13 }}>
+                    <Disclosure label="more…">
+                      <SubLabel>Helm rank</SubLabel>
+                      <div style={pillRow}>
+                        {HELM_ORDER.map((r) => (
+                          <Pill key={r} active={helmG.style === r} onClick={() => apply(setHelm, 'helm', 'pill', r)} title={HELMETS[r]?.plain}>{cap(r)}</Pill>
+                        ))}
+                      </div>
+                      <SubLabel style={{ marginTop: 12 }}>Torse — the twisted wreath on the helm</SubLabel>
+                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                        <div>
+                          <SubLabel style={{ fontSize: 10.5 }}>First</SubLabel>
+                          <Swatches names={TINCTURE_ORDER} active={torseG.tinctures[0]} onPick={(t) => apply(setTorse, 'torse', 'swatch', [t, torseG.tinctures[1]])} />
+                        </div>
+                        <div>
+                          <SubLabel style={{ fontSize: 10.5 }}>Second</SubLabel>
+                          <Swatches names={TINCTURE_ORDER} active={torseG.tinctures[1]} onPick={(t) => apply(setTorse, 'torse', 'swatch', [torseG.tinctures[0], t])} />
+                        </div>
+                      </div>
+                      <SubLabel style={{ marginTop: 12 }}>Mantling — the cloth behind the shield</SubLabel>
+                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                        <div>
+                          <SubLabel style={{ fontSize: 10.5 }}>First</SubLabel>
+                          <Swatches names={TINCTURE_ORDER} active={mantlingG.tinctures[0]} onPick={(t) => apply(setMantling, 'mantling', 'swatch', [t, mantlingG.tinctures[1]])} />
+                        </div>
+                        <div>
+                          <SubLabel style={{ fontSize: 10.5 }}>Second</SubLabel>
+                          <Swatches names={TINCTURE_ORDER} active={mantlingG.tinctures[1]} onPick={(t) => apply(setMantling, 'mantling', 'swatch', [mantlingG.tinctures[0], t])} />
+                        </div>
+                      </div>
+                    </Disclosure>
+                  </div>
+                </PartCard>
+              ) : (
+                <GhostRow tag="CREST & HELM" onRestore={() => restorePart('crest')} />
+              )}
+
+              {/* ── Supporters ── */}
+              {suppG ? (
+                <PartCard
+                  tag="SUPPORTERS"
+                  valueText={CHARGES[suppG.dexter.object.key]?.label || humanize(suppG.dexter.object.key)}
+                  rationale={design.rationale?.supporters || SUPPORTERS_FALLBACK_RATIONALE}
+                  onSetAside={() => setAsidePart('supporters', clearSupporters)}
+                >
+                  <div style={pillRow}>
+                    {BEASTS.map((k) => (
+                      <Pill key={k} active={suppG.dexter.object.key === k} onClick={() => apply(setSupporters, 'supporters', 'pill', k)}>{CHARGES[k].label}</Pill>
+                    ))}
+                  </div>
+                  <SubLabel style={{ marginTop: 13 }}>Their colour</SubLabel>
+                  <Swatches names={TINCTURE_ORDER} active={suppG.dexter.tincture} onPick={(t) => apply(setSupporterSide, 'supporters', 'swatch', 'dexter', { tincture: t })} />
+                  <div style={{ marginTop: 13 }}>
+                    <Disclosure label="Different on each side">
+                      <SubLabel>Dexter — the shield's own right (your left, facing it)</SubLabel>
+                      <div style={pillRow}>
+                        {BEASTS.map((k) => (
+                          <Pill key={k} active={suppG.dexter.object.key === k} onClick={() => apply(setSupporterSide, 'supporters', 'pill', 'dexter', { object: { kind: 'charge', key: k, attitude: defaultAttitudeFor(k) || undefined } })}>{CHARGES[k].label}</Pill>
+                        ))}
+                      </div>
+                      <Swatches names={TINCTURE_ORDER} active={suppG.dexter.tincture} onPick={(t) => apply(setSupporterSide, 'supporters', 'swatch', 'dexter', { tincture: t })} />
+                      <SubLabel style={{ marginTop: 12 }}>Sinister — the shield's own left (your right, facing it)</SubLabel>
+                      <div style={pillRow}>
+                        {BEASTS.map((k) => (
+                          <Pill key={k} active={sinisterG.object.key === k} onClick={() => apply(setSupporterSide, 'supporters', 'pill', 'sinister', { object: { kind: 'charge', key: k, attitude: defaultAttitudeFor(k) || undefined } })}>{CHARGES[k].label}</Pill>
+                        ))}
+                      </div>
+                      <Swatches names={TINCTURE_ORDER} active={sinisterG.tincture} onPick={(t) => apply(setSupporterSide, 'supporters', 'swatch', 'sinister', { tincture: t })} />
+                      <SubLabel style={{ marginTop: 14 }}>Standing on a mound</SubLabel>
+                      <div style={pillRow}>
+                        <Pill
+                          active={!!compartment(design)}
+                          onClick={() => {
+                            if (compartment(design)) apply(clearCompartment, 'compartment', 'pill');
+                            else apply((d) => setCompartment(d, 'mound', 'Vert'), 'compartment', 'pill');
+                          }}
+                        >{compartment(design) ? 'Remove the mound' : 'Add a mound'}</Pill>
+                      </div>
+                    </Disclosure>
+                  </div>
+                </PartCard>
+              ) : (
+                <GhostRow tag="SUPPORTERS" onRestore={() => restorePart('supporters')} />
+              )}
 
               {/* Conversion at the result peak — one honest line, no dead paid CTAs */}
               <div style={{ marginTop: 22, borderTop: `1px solid ${C.lineMid}`, paddingTop: 18 }}>

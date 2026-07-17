@@ -2,7 +2,7 @@ import React, { useId } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import { useCharge } from './charges/recolor.js';
 import { hasArt, artFile } from './charges/manifest.js';
-import { tinctureHex, blazon, drawShieldURL, withDefaultAchievement } from './heraldry.js';
+import { tinctureHex, blazon, drawShieldURL, withDefaultAchievement, normalize } from './heraldry.js';
 import { findByKey } from './achievement-art/manifest.js';
 import { recolorFurniture, innerMarkup, swapPlaceholderFills } from './achievement-art/recolor.js';
 import {
@@ -102,10 +102,19 @@ function ArtCharge({ box, art, hex }) {
  *                draw locally rather than erroring or embedding a raster
  *                that a Node/Workers SVG rasteriser can't resolve.
  *  - width       CSS width of the root svg (default '100%').
+ *  - backfill    default true (unchanged prior behaviour: every missing part
+ *                is auto-filled). Studio's editing preview (Task 14) passes
+ *                `false` — an achievement-editing caller's `design` already
+ *                carries the achievement EXACTLY as the user left it, and a
+ *                part the user deliberately "set aside" (removed) must render
+ *                absent, not silently reappear via the same default-fill this
+ *                prop disables. Every other caller (generation preview, the
+ *                SSR/OG path, PRESETS which never carry an `achievement` at
+ *                all) keeps the default `true` — this is purely additive.
  */
-export default function Achievement({ design, shieldSlot = null, artCache = null, ssr = false, width = '100%' }) {
+export default function Achievement({ design, shieldSlot = null, artCache = null, ssr = false, width = '100%', backfill = true }) {
   const uid = useId().replace(/[:]/g, '');
-  const coat = withDefaultAchievement(design);
+  const coat = backfill ? withDefaultAchievement(design) : (normalize(design) || design);
   const a = coat.achievement || {};
 
   const helmStyle = (a.helm && a.helm.style) || 'esquire';
@@ -194,7 +203,11 @@ export default function Achievement({ design, shieldSlot = null, artCache = null
       {/* 2. Shield slot — the escutcheon (the hero; everything else steps back) */}
       <svg x={sb.x} y={sb.y} width={sb.w} height={sb.h} viewBox="0 0 200 240" preserveAspectRatio="xMidYMid meet">
         {shieldSlot ? shieldSlot : shieldLocal ? (
-          <Shield design={coat} width="100%" chargeArt={artCache} />
+          // ariaHidden: the root <svg> above already carries role="img"/aria-label
+          // for the WHOLE composition — without this the nested <Shield> would
+          // double-read its own blazon on top of it (Task 12 review, folded into
+          // Task 14).
+          <Shield design={coat} width="100%" chargeArt={artCache} ariaHidden />
         ) : (
           <foreignObject x={0} y={0} width={200} height={240}>
             <img

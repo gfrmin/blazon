@@ -181,6 +181,7 @@ export default function Shield({
   onCharge,
   width = '100%',
   chargeArt = null,
+  ariaHidden = false,
 }) {
   const uid = useId().replace(/[:]/g, '');
   const clip = `clip-${uid}`;
@@ -210,8 +211,9 @@ export default function Shield({
     <svg
       viewBox="0 0 200 240"
       width={width}
-      role="img"
-      aria-label={blazon(design, 'formal')}
+      role={ariaHidden ? undefined : 'img'}
+      aria-label={ariaHidden ? undefined : blazon(design, 'formal')}
+      aria-hidden={ariaHidden || undefined}
       style={{ display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }}
     >
       <defs>

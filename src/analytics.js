@@ -263,12 +263,16 @@ export function _sanitizeExceptionList(list) {
 //   first_render{ms_since_submit} charge_search_used{query_len,hits,picked}
 //   preset_selected{index} hero_interacted{control} download_opened{surface}
 //   download_free{format} download_error{format}
+//   achievement_part_removed{part} achievement_part_restored{part}
+//   just_shield_toggled{on} (task-14 brief §3 — `part` is already allowlisted
+//   above for design_edited; `on` is a plain boolean, not free text)
 //   (blazon_copied/describe_started/blazon_lang_toggled/landing_viewed/
 //    print_interest_clicked/$pageview carry no props at all)
 const OWN_EVENT_PROPS = [
   'source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
   'part', 'control', 'is_first_edit', 'ms_since_submit',
   'query_len', 'hits', 'picked', 'index', 'surface', 'format',
+  'on',
 ];
 
 // (b) Our super-props — posthog.register()'d in _computeInitialSuperProps
