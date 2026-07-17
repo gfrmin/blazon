@@ -6,6 +6,8 @@ import { catalogKeys, humanize } from './charges/manifest.js';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel, HoverBtn } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn, goldBtnHover } from './theme.js';
+import { navigate, parseHash, parseQuery } from './router.js';
+import { encodeCoat, decodeCoat } from './share/codec.js';
 import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
@@ -38,13 +40,20 @@ const CHARGES_BY_CATEGORY = CHARGE_CATEGORIES
   .filter(([, keys]) => keys.length);
 const ARRANGEMENTS = ['in pale', 'in fess', 'in chief'];
 
-export default function Studio({ onBack }) {
+const AUTOSAVE_KEY = 'blazon:current';
+
+export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
+  // `arrivedViaShare` is accepted but unused for now — a later task (the
+  // dedicated /a/ presentation view, M3) may use it for share-arrival
+  // messaging; forwarding it here keeps that a non-breaking addition.
   const isMobile = useMediaQuery('(max-width: 820px)');
-  const [step, setStep] = useState('describe'); // 'describe' | 'design'
+  // A share link (initialDesign) opens straight into the design step; the
+  // mount effect below covers the other two entry points (hash / autosave).
+  const [step, setStep] = useState(initialDesign ? 'design' : 'describe'); // 'describe' | 'design'
   const [desc, setDesc] = useState('');
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [design, setDesign] = useState(null); // a Coat AST
+  const [design, setDesign] = useState(initialDesign || null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
@@ -54,6 +63,7 @@ export default function Studio({ onBack }) {
   const turnstileRef = useRef(null);
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
   const [dsFailed, setDsFailed] = useState(false); // DrawShield img errored → degrade to local
+  const [autoGenPending, setAutoGenPending] = useState(false); // queued ?desc= auto-generation
 
   // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
   //    returns a validated Coat. Falls back to a canned preset when the API
@@ -122,6 +132,79 @@ export default function Studio({ onBack }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
+
+  // ── URL state: restore on mount, then keep the URL/autosave in sync with
+  //    `design` afterwards. Skipped for a share arrival (initialDesign) —
+  //    App.jsx already decoded that design and the URL is already correct
+  //    by the time we're mounted that way. ──
+  //
+  // Restore precedence: hash payload, then localStorage autosave, then (if
+  // neither exists) a `?desc=` to prefill + auto-generate, else blank
+  // describe. A decode failure at any stage falls through to the next one —
+  // the describe step is the ultimate safety net, never a crash.
+  useEffect(() => {
+    if (initialDesign) return undefined;
+    let cancelled = false;
+    (async () => {
+      const hashPayload = parseHash(window.location.hash);
+      if (hashPayload) {
+        try {
+          const coat = await decodeCoat(hashPayload);
+          if (cancelled) return;
+          setDesign(coat);
+          setLang('plain');
+          setStep('design');
+          return;
+        } catch { /* bad hash payload — fall through to autosave/describe */ }
+      }
+
+      try {
+        const raw = localStorage.getItem(AUTOSAVE_KEY);
+        const envelope = raw ? JSON.parse(raw) : null;
+        if (envelope && envelope.v === 1 && envelope.coat) {
+          if (cancelled) return;
+          setDesign(envelope.coat);
+          setLang('plain');
+          setStep('design');
+          return;
+        }
+      } catch { /* corrupt/missing autosave — ignored silently */ }
+
+      const q = parseQuery(window.location.search);
+      if (q.desc) {
+        if (cancelled) return;
+        setDesc(q.desc);
+        setAutoGenPending(true);
+        navigate('/studio', { replace: true }); // strip ?desc= once consumed
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [initialDesign]);
+
+  // Fire the queued ?desc= auto-generation once `desc` has actually settled
+  // to the query value — generate() reads `desc`/`token` via closure, so
+  // this needs a render past the setDesc above to see the right text; same
+  // path a manual submit uses (Turnstile handling, notices, fallback).
+  useEffect(() => {
+    if (!autoGenPending) return;
+    setAutoGenPending(false);
+    generate();
+  }, [autoGenPending]);
+
+  // Debounced hash + autosave write, ~400ms after the design settles. Always
+  // replaceState — never pushState per edit (no history spam).
+  useEffect(() => {
+    if (!design) return undefined;
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(AUTOSAVE_KEY, JSON.stringify({ v: 1, coat: design }));
+      } catch { /* storage unavailable/full — ignored silently */ }
+      encodeCoat(design)
+        .then((payload) => navigate('/studio#' + payload, { replace: true }))
+        .catch(() => { /* encoding failure shouldn't crash the editor */ });
+    }, 400);
+    return () => clearTimeout(t);
+  }, [design]);
 
   const formal = design ? blazon(design, 'formal') : '';
   const local = design ? canRenderLocally(design) : true;
