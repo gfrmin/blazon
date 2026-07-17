@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import Turnstile, { turnstileConfigured } from './components/Turnstile.jsx';
+import DownloadDialog from './components/DownloadDialog.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
-import { Swatch, Pill, LangToggle, Disclosure, SubLabel, HoverBtn } from './ui.jsx';
+import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
-import { C, F, goldBtn, goldBtnHover } from './theme.js';
+import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat } from './share/codec.js';
 import {
@@ -56,7 +57,8 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const [design, setDesign] = useState(initialDesign || null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadSurface, setDownloadSurface] = useState('header'); // 'header' | 'result_peak' — which CTA opened it (analytics)
   const [token, setToken] = useState(null); // Turnstile token (one-shot)
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
   const [chargeQuery, setChargeQuery] = useState(''); // search the full charge catalog
@@ -133,10 +135,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   // Every edit funnels through a coat.js mutator — one code path, immutable.
   const apply = (fn, ...args) => setDesign((d) => fn(d, ...args));
 
-  // Export is code-split (it pulls in react-dom/server) — load it on click only.
-  const doExport = (kind) => {
-    setExportOpen(false);
-    import('./export.js').then((m) => (kind === 'svg' ? m.downloadSVG(design) : m.downloadPNG(design)));
+  const openDownload = (surface) => {
+    if (!design) return;
+    setDownloadSurface(surface);
+    setDownloadOpen(true);
   };
 
   const copyBlazon = () => {
@@ -265,22 +267,13 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
             progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
             the per-card "more…" reveals) — never a self-classification switch on arrival. */}
         <div style={{ display: 'flex', gap: 10 }}>
+          {/* TODO(M3): Save → library
           <button style={{ background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer', fontFamily: F.sans }}>Save</button>
-          <div style={{ position: 'relative' }}>
-            <button
-              onClick={() => design && setExportOpen((o) => !o)}
-              style={{ ...goldBtn, padding: '9px 18px', fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
-            >Export ▾</button>
-            {exportOpen && design && (
-              <>
-                <div onClick={() => setExportOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 15 }} />
-                <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, background: '#101A2A', border: '1px solid rgba(201,162,75,.3)', borderRadius: 8, padding: 6, display: 'flex', flexDirection: 'column', gap: 2, zIndex: 20, minWidth: 188, boxShadow: '0 10px 30px rgba(0,0,0,.5)' }}>
-                  <button onClick={() => doExport('svg')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download vector file</button>
-                  <button onClick={() => doExport('png')} style={{ background: 'transparent', border: 'none', color: '#ECE6D8', textAlign: 'left', padding: '9px 12px', borderRadius: 6, fontSize: 13.5, cursor: 'pointer' }}>Download image · print quality</button>
-                </div>
-              </>
-            )}
-          </div>
+          */}
+          <button
+            onClick={() => openDownload('header')}
+            style={{ ...goldBtn, padding: '9px 18px', fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
+          >Download</button>
         </div>
       </header>
 
@@ -552,13 +545,12 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 />
               </div>
 
-              {/* Conversion at the result peak — free to design; the watermark lifts on purchase */}
+              {/* Conversion at the result peak — one honest line, no dead paid CTAs */}
               <div style={{ marginTop: 22, borderTop: `1px solid ${C.lineMid}`, paddingTop: 18 }}>
-                <p style={{ fontSize: 12, color: C.muted2, margin: '0 0 12px', letterSpacing: '.2px' }}>Free to design — the watermark lifts when you download or order a print.</p>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <HoverBtn style={{ ...goldBtn, flex: 1, padding: 14, borderRadius: 9, fontSize: 14.5, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }} hoverStyle={goldBtnHover}>Download<span style={{ fontWeight: 400, fontSize: 11, opacity: .75, marginTop: 2 }}>clean file · $19</span></HoverBtn>
-                  <button style={{ flex: 1, padding: 14, borderRadius: 9, fontWeight: 600, fontSize: 14.5, cursor: 'pointer', background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, fontFamily: F.sans, display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>Order a print<span style={{ fontWeight: 400, fontSize: 11, opacity: .7, marginTop: 2 }}>framed · from $49</span></button>
-                </div>
+                <button
+                  onClick={() => openDownload('result_peak')}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, fontSize: 12.5, color: C.muted2, textDecoration: 'underline', cursor: 'pointer', fontFamily: F.sans, lineHeight: 1.5, letterSpacing: '.2px' }}
+                >Free to design and share. Downloads are free with a small mark — clean print files are coming.</button>
               </div>
               <div style={{ textAlign: 'center', marginTop: 14 }}><CreditsLink style={{ fontSize: 12 }} /></div>
             </div>
@@ -581,6 +573,8 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
         </div>
         <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? '#C9A24B' : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
+
+      <DownloadDialog open={downloadOpen && !!design} onClose={() => setDownloadOpen(false)} design={design} surface={downloadSurface} />
     </div>
   );
 }
