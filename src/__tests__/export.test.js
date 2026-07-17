@@ -57,6 +57,27 @@ test('achievementSVG: has the react namespace on the root <svg> (React omits it 
   assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
 });
 
+// Regression lock (live-caught bug, task-19 verification — see the comment
+// above the `.replace('width="100%"', …)` call in src/export.js): a
+// PERCENTAGE width has nothing to resolve against in svgToPNG's standalone
+// `<img src="data:...">` rasterisation, so the free-tier footer band
+// rasterised fully blank/mispositioned even though this markup looked fine.
+// Pinning both width AND height to definite pixels fixed it; assert the
+// ROOT <svg>'s opening tag specifically carries definite values, never a
+// percentage, so a revert is caught. (Nested <svg> sub-elements deeper in
+// the composition legitimately keep `width="100%"` — they sit inside an
+// ancestor that already has a definite pixel containing block — so this
+// checks only the root tag, not the whole markup.)
+test('achievementSVG: root <svg> width/height are pinned to definite pixel values, never a percentage (regression lock for the blank-rasterisation bug)', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG(fullDesign());
+  const rootTag = svg.match(/^<svg[^>]*>/)[0];
+  assert.doesNotMatch(rootTag, /width="100%"/);
+  assert.doesNotMatch(rootTag, /height="100%"/);
+  assert.match(rootTag, /width="1000"/);
+  assert.match(rootTag, /height="\d+"/);
+});
+
 test('achievementSVG: backfill=false — a design with the crest explicitly cleared renders with no crest markup, even from a full achievement', async () => {
   stubR2Fetch();
   const withCrest = fullDesign();

@@ -19,7 +19,7 @@ function fakeKV() {
 
 const REAL_COAT = { field: { tincture: 'Gules' }, charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'ordinary', key: 'fess' } }] };
 
-const CONFIGURED_ENV = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PRICE_ID: 'price_x' };
+const CONFIGURED_ENV = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PRICE_ID: 'price_x', UNLOCK_SIGNING_SECRET: 'unlock_secret_x' };
 
 /** Stub fetch: Stripe checkout-session creation always succeeds with a fixed URL, capturing the request for inspection. */
 function stubStripeOk(capture) {
@@ -44,14 +44,27 @@ test('missing BOTH Stripe env vars -> 503 checkout_not_configured, never touches
   assert.equal(calledStripe, false);
 });
 
-test('missing STRIPE_PRICE_ID alone -> 503 (both vars required, matching /api/health\'s own rule)', async () => {
-  const res = await onRequestPost({ request: fakeRequest({}), env: { STRIPE_SECRET_KEY: 'sk_test_x' } });
+test('missing STRIPE_PRICE_ID alone -> 503 (all three vars required, matching /api/health\'s own rule)', async () => {
+  const res = await onRequestPost({ request: fakeRequest({}), env: { STRIPE_SECRET_KEY: 'sk_test_x', UNLOCK_SIGNING_SECRET: 'unlock_secret_x' } });
   assert.equal(res.status, 503);
 });
 
 test('missing STRIPE_SECRET_KEY alone -> 503', async () => {
-  const res = await onRequestPost({ request: fakeRequest({}), env: { STRIPE_PRICE_ID: 'price_x' } });
+  const res = await onRequestPost({ request: fakeRequest({}), env: { STRIPE_PRICE_ID: 'price_x', UNLOCK_SIGNING_SECRET: 'unlock_secret_x' } });
   assert.equal(res.status, 503);
+});
+
+// Real-money regression lock: STRIPE_SECRET_KEY + STRIPE_PRICE_ID present but
+// UNLOCK_SIGNING_SECRET missing must 503 BEFORE creating a Stripe Checkout
+// Session — otherwise the customer is charged and /api/verify-payment's own
+// 503 (same missing var) leaves them with no unlock. Never touches Stripe.
+test('missing UNLOCK_SIGNING_SECRET alone (Stripe vars present) -> 503, never touches Stripe (charge-without-delivery gap closed)', async () => {
+  let calledStripe = false;
+  globalThis.fetch = async (url) => { calledStripe = true; throw new Error(`must not call Stripe: ${url}`); };
+  const res = await onRequestPost({ request: fakeRequest({}), env: { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_PRICE_ID: 'price_x' } });
+  assert.equal(res.status, 503);
+  assert.deepEqual(await res.json(), { error: 'checkout_not_configured' });
+  assert.equal(calledStripe, false);
 });
 
 test('fail-safe check runs BEFORE body parsing — a malformed body never surfaces as a different error when unconfigured', async () => {

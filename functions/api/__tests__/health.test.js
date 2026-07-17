@@ -17,6 +17,7 @@ test('all env vars present → all true, values never echoed', async () => {
     TURNSTILE_SECRET_KEY: 'secret-turnstile',
     STRIPE_SECRET_KEY: 'sk-secret-stripe',
     STRIPE_PRICE_ID: 'price_123',
+    UNLOCK_SIGNING_SECRET: 'unlock-secret-x',
   };
   const res = await onRequestGet({ env });
   const body = await res.json();
@@ -27,7 +28,7 @@ test('all env vars present → all true, values never echoed', async () => {
   }
 });
 
-test('checkout requires both Stripe vars — either alone is false', async () => {
+test('checkout requires all THREE vars (STRIPE_SECRET_KEY, STRIPE_PRICE_ID, UNLOCK_SIGNING_SECRET) — any one alone is false', async () => {
   assert.equal(
     (await (await onRequestGet({ env: { STRIPE_SECRET_KEY: 'sk-x' } })).json()).checkout,
     false,
@@ -36,4 +37,25 @@ test('checkout requires both Stripe vars — either alone is false', async () =>
     (await (await onRequestGet({ env: { STRIPE_PRICE_ID: 'price_x' } })).json()).checkout,
     false,
   );
+  assert.equal(
+    (await (await onRequestGet({ env: { UNLOCK_SIGNING_SECRET: 'unlock-x' } })).json()).checkout,
+    false,
+  );
+});
+
+// Real-money regression lock (review finding): the two Stripe vars alone are
+// NOT sufficient — verify-payment.js also requires UNLOCK_SIGNING_SECRET to
+// mint an unlock token, so a deploy missing only that var must still report
+// checkout:false. Otherwise DownloadDialog shows a live $19 button whose
+// `?cs=` return leg always 503s: charged, never unlocked.
+test('checkout is false when BOTH Stripe vars are present but UNLOCK_SIGNING_SECRET is absent (charge-without-delivery half-config)', async () => {
+  const body = await (await onRequestGet({ env: { STRIPE_SECRET_KEY: 'sk-x', STRIPE_PRICE_ID: 'price_x' } })).json();
+  assert.equal(body.checkout, false);
+});
+
+test('checkout is true only when all three vars are present together', async () => {
+  const body = await (await onRequestGet({
+    env: { STRIPE_SECRET_KEY: 'sk-x', STRIPE_PRICE_ID: 'price_x', UNLOCK_SIGNING_SECRET: 'unlock-x' },
+  })).json();
+  assert.equal(body.checkout, true);
 });

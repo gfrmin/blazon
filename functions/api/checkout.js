@@ -7,12 +7,18 @@
 // produces for share links (`{v:1, coat}` → deflate-raw → base64url) — the
 // client sends its current design exactly as it would for a share URL.
 //
-// Fail-safe (task-19 brief, verbatim): missing STRIPE_SECRET_KEY/
-// STRIPE_PRICE_ID → 503 `checkout_not_configured`, checked BEFORE touching
-// the request body so a misconfigured deploy always reports the same thing
-// regardless of payload shape. The client keeps the free tier intact and
-// shows "coming soon" for the paid slot — NEVER a dead $19 button (the
-// funnel poison M1 removed).
+// Fail-safe (task-19 brief, verbatim; extended post-review to close a
+// charge-without-delivery gap): missing STRIPE_SECRET_KEY, STRIPE_PRICE_ID,
+// OR UNLOCK_SIGNING_SECRET → 503 `checkout_not_configured`, checked BEFORE
+// touching the request body so a misconfigured deploy always reports the
+// same thing regardless of payload shape. UNLOCK_SIGNING_SECRET is included
+// here even though this handler never uses it directly — /api/verify-payment
+// requires it to mint an unlock token on the `?cs=` return leg, so a Checkout
+// Session must never be created if that later step can't possibly succeed
+// (Stripe-configured-but-signing-secret-missing would otherwise charge the
+// customer and then 503 on return, with no unlock delivered). The client
+// keeps the free tier intact and shows "coming soon" for the paid slot —
+// NEVER a dead $19 button (the funnel poison M1 removed).
 //
 // designHash is computed from the DECODED, NORMALIZED coat — decodeCoat()
 // (src/share/codec.js) already throws on anything that fails to normalize,
@@ -42,7 +48,9 @@ export async function onRequestPost(context) {
   }
 
   // Fail-safe FIRST — see file header. Checked before parsing the body.
-  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_ID) {
+  // Same three vars /api/verify-payment requires — a session this deploy
+  // couldn't later verify/unlock must never be created.
+  if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_ID || !env.UNLOCK_SIGNING_SECRET) {
     return json({ error: 'checkout_not_configured' }, 503);
   }
 
