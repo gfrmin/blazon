@@ -21,7 +21,10 @@ const FOOTER_H = 52; // band below the 240-tall shield for the blazon + watermar
 const escapeXML = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function slug(design) {
+// Exported — Studio's Save-as name prompt (M3/B5, task-16 brief §2) reuses
+// this exact slug logic for its default name, rather than hand-rolling a
+// second one.
+export function slug(design) {
   const s = blazon(design, 'formal').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return (s || 'coat-of-arms').slice(0, 60);
 }

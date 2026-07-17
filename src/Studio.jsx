@@ -11,6 +11,7 @@ import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat } from './share/codec.js';
+import { saveDesign, listDesigns } from './library.js';
 import { track } from './analytics.js';
 import { raceWithTimeout } from './timeoutRace.js';
 import {
@@ -161,6 +162,17 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const [design, setDesign] = useState(initialDesign || null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
+  // ── Save → library (M3/B5, task-16 brief §2) ──────────────────────────
+  // `currentId` is the library entry THIS working design maps to, or null
+  // for a design that's never been explicitly saved. Deliberately separate
+  // state from the AUTOSAVE_KEY machinery below: autosave is continuous,
+  // silent crash protection (every settled edit, no user intent implied);
+  // `currentId`/`saved` below track an EXPLICIT save action. Neither reads
+  // nor writes the other's storage key.
+  const [currentId, setCurrentId] = useState(null);
+  const [saved, setSaved] = useState(false); // "Saved ✓" confirmation — see the design-keyed effect below
+  const [naming, setNaming] = useState(false); // inline "name this design" prompt (save-AS only)
+  const [nameDraft, setNameDraft] = useState('');
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadSurface, setDownloadSurface] = useState('header'); // 'header' | 'result_peak' — which CTA opened it (analytics)
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
@@ -314,6 +326,8 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     setDesign(null);
     setDesc('');
     setSelectedPreset(null);
+    setCurrentId(null); // "Start over" always starts a fresh, unsaved design
+    setNaming(false);
     navigate('/studio', { replace: true });
     try {
       localStorage.removeItem(AUTOSAVE_KEY);
@@ -343,6 +357,39 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     track('blazon_copied');
     setTimeout(() => setCopied(false), 1600);
   };
+
+  // Writes to the library (`blazon:library:v1`, via src/library.js) and
+  // flips the "Saved ✓" confirmation. `name` is omitted on an overwrite —
+  // saveDesign keeps the entry's existing name in that case (no re-prompt).
+  const commitSave = (name) => {
+    const result = saveDesign(localStorage, { id: currentId || undefined, name, coat: design });
+    if (!result) return; // quota/write failure — no toast system; Save just stays clickable, unclaimed
+    setCurrentId(result.id);
+    setSaved(true);
+    // library_size is a COUNT, not the design's name/coat — see analytics.js's SAFE_PROPS.
+    track('design_saved', { library_size: listDesigns(localStorage).length });
+  };
+
+  // Save button click. An already-saved design (currentId set) overwrites
+  // straight away — no prompt. An unsaved design opens the inline save-AS
+  // name prompt, defaulted to the same slug export.js's PNG download uses
+  // (don't hand-roll a second one). export.js is code-split (pulls in
+  // react-dom/server, per DownloadDialog.jsx) — load it on click only, same
+  // pattern as the Download button.
+  const startSave = async () => {
+    if (!design) return;
+    if (currentId) { commitSave(); return; }
+    const { slug } = await import('./export.js');
+    setNameDraft(slug(design));
+    setNaming(true);
+  };
+
+  const confirmSaveAs = () => {
+    commitSave(nameDraft.trim() || undefined); // empty → saveDesign's own "Untitled" default
+    setNaming(false);
+  };
+
+  const cancelSaveAs = () => setNaming(false);
 
   // ── URL state: restore on mount, then keep the URL/autosave in sync with
   //    `design` afterwards. Skipped for a share arrival (initialDesign) —
@@ -416,6 +463,14 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     pendingFirstRenderRef.current = false;
     track('first_render', { ms_since_submit: Math.round(performance.now() - submitStartRef.current) });
   }, [design]);
+
+  // "Saved ✓" reflects the CURRENT design only — ANY change to `design`
+  // (an edit, Start over, a fresh generate/preset pick, a hash/autosave
+  // restore) invalidates it. Keyed off the `design` reference itself, not a
+  // timer — unlike the Copy button's timed revert (below), the brief calls
+  // for "until the next edit", not "for N seconds". A successful save does
+  // NOT change `design`, so this never fires right after setSaved(true).
+  useEffect(() => { setSaved(false); }, [design]);
 
   // Debounced hash + autosave write, ~400ms after the design settles. Always
   // replaceState — never pushState per edit (no history spam).
@@ -560,10 +615,32 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
             internal UX-design instrument, not in-product furniture. Depth is reached through
             progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
             the per-card "more…" reveals) — never a self-classification switch on arrival. */}
-        <div style={{ display: 'flex', gap: 10 }}>
-          {/* TODO(M3): Save → library
-          <button style={{ background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: 'pointer', fontFamily: F.sans }}>Save</button>
-          */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {naming ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input
+                autoFocus
+                value={nameDraft}
+                onChange={(e) => setNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') confirmSaveAs();
+                  if (e.key === 'Escape') cancelSaveAs();
+                }}
+                onBlur={cancelSaveAs}
+                placeholder="Name this design…"
+                style={{ background: '#0B111C', border: `1px solid ${C.lineHi}`, borderRadius: 7, padding: '8px 10px', color: C.cream, fontSize: 13, fontFamily: F.sans, width: isMobile ? 118 : 160 }}
+              />
+              {/* onMouseDown preventDefault (not onClick alone): a plain click would
+                  blur the input FIRST (cancelSaveAs), unmounting this button before its
+                  own click could fire — this keeps the input focused through the click. */}
+              <button onMouseDown={(e) => e.preventDefault()} onClick={confirmSaveAs} style={{ ...goldBtn, padding: '9px 14px', fontSize: 13 }}>Save</button>
+            </div>
+          ) : (
+            <button
+              onClick={startSave}
+              style={{ background: 'transparent', color: saved ? '#C9A24B' : C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5, fontFamily: F.sans }}
+            >{saved ? 'Saved ✓' : 'Save'}</button>
+          )}
           <button
             onClick={() => openDownload('header')}
             style={{ ...goldBtn, padding: '9px 18px', fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}

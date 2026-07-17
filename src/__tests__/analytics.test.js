@@ -716,9 +716,21 @@ test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewr
 test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
   for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
     'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
-    'picked', 'index', 'surface', 'format', 'on']) {
+    'picked', 'index', 'surface', 'format', 'on', 'library_size']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
+});
+
+// design_saved{library_size} (task-16 brief §2) — library_size is a COUNT;
+// this locks in that no free text (a design's name/coat) could ever survive
+// the allowlist even if a future call-site accidentally added one.
+test('sanitizeEvent: design_saved — library_size (a count) survives; a hypothetical name/coat prop would not', () => {
+  const raw = {
+    event: 'design_saved',
+    properties: { library_size: 4, token: 't1', name: 'Grandma’s Arms', coat: { field: 'Gules' } },
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.properties, { library_size: 4, token: 't1' });
 });
 
 // ── pre-seed pin: exercised against the REAL, installed posthog-js internals ──
