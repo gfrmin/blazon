@@ -5,13 +5,15 @@ import Turnstile, { turnstileConfigured } from './components/Turnstile.jsx';
 import DownloadDialog from './components/DownloadDialog.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
-import { Swatch, Pill, LangToggle, Disclosure, SubLabel } from './ui.jsx';
+import { Swatch, Pill, LangToggle, Disclosure, SubLabel, MenuPopover, MenuItem } from './ui.jsx';
 import { GildedRule } from './components/Ornament.jsx';
+import SharePopover from './components/SharePopover.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
-import { encodeCoat, decodeCoat } from './share/codec.js';
-import { saveDesign, listDesigns } from './library.js';
+import { encodeCoat, decodeCoat, designHash } from './share/codec.js';
+import { saveDesign, listDesigns, findByHash } from './library.js';
+import { headerControls } from './header-layout.js';
 import { track } from './analytics.js';
 import { raceWithTimeout } from './timeoutRace.js';
 import {
@@ -148,18 +150,18 @@ const AUTOSAVE_KEY = 'blazon:current';
 // navigate() (task-7 brief §2, `studio_opened`). Key must match App.jsx.
 const STUDIO_SOURCE_KEY = 'blazon:studio_source';
 
-export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
-  // `arrivedViaShare` is accepted but unused for now — a later task (the
-  // dedicated /a/ presentation view, M3) may use it for share-arrival
-  // messaging; forwarding it here keeps that a non-breaking addition.
+export default function Studio({ onBack }) {
+  // Every entry point that lands here directly (Landing's CTAs, the /a/
+  // recipient view's "Make your own"/"Open in Studio", a bare /studio visit)
+  // goes through the SAME mount effect below (hash → autosave → ?desc= →
+  // blank describe) — there is no separate "arrived pre-loaded" prop path
+  // anymore (Task 18 retired it; see the mount effect's own comment).
   const isMobile = useMediaQuery('(max-width: 820px)');
-  // A share link (initialDesign) opens straight into the design step; the
-  // mount effect below covers the other two entry points (hash / autosave).
-  const [step, setStep] = useState(initialDesign ? 'design' : 'describe'); // 'describe' | 'design'
+  const [step, setStep] = useState('describe'); // 'describe' | 'design'
   const [desc, setDesc] = useState('');
   const [selectedPreset, setSelectedPreset] = useState(null);
   const [generating, setGenerating] = useState(false);
-  const [design, setDesign] = useState(initialDesign || null); // a Coat AST
+  const [design, setDesign] = useState(null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
   const [copied, setCopied] = useState(false);
   // ── Save → library (M3/B5, task-16 brief §2) ──────────────────────────
@@ -392,17 +394,34 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const cancelSaveAs = () => setNaming(false);
 
   // ── URL state: restore on mount, then keep the URL/autosave in sync with
-  //    `design` afterwards. Skipped for a share arrival (initialDesign) —
-  //    App.jsx already decoded that design and the URL is already correct
-  //    by the time we're mounted that way. ──
+  //    `design` afterwards. ──
   //
   // Restore precedence: hash payload, then localStorage autosave, then (if
   // neither exists) a `?desc=` to prefill + auto-generate, else blank
   // describe. A decode failure at any stage falls through to the next one —
-  // the describe step is the ultimate safety net, never a crash.
+  // the describe step is the ultimate safety net, never a crash. Every path
+  // that lands a design here — Open-from-library, /a/'s "Open in Studio", a
+  // reload restoring from hash — goes through the hash branch below (all
+  // three ultimately arrive as /studio#<payload>); the autosave branch
+  // covers the same case for the rarer "hash missing/cleared, autosave
+  // still present" situation.
   useEffect(() => {
-    if (initialDesign) return undefined;
     let cancelled = false;
+
+    // Task 18 §2b — the save-identity reconnect (a HARD requirement handed
+    // off by Task 16: `currentId` is in-memory-only React state, so any path
+    // that LOADS a design here has no way to know it might already be a
+    // saved library entry; without this, the next Save would fork a
+    // duplicate instead of overwriting). Fire-and-forget, right after a
+    // design is set: hash it, look it up in the library, and if it's
+    // already there, reconnect `currentId` to that entry.
+    const reconnectSaveIdentity = (coat) => {
+      designHash(coat)
+        .then((hash) => findByHash(localStorage, hash))
+        .then((entry) => { if (!cancelled && entry) setCurrentId(entry.id); })
+        .catch(() => { /* hashing/lookup failure — currentId just stays null; Save still works (save-as) */ });
+    };
+
     (async () => {
       const hashPayload = parseHash(window.location.hash);
       if (hashPayload) {
@@ -413,6 +432,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
           setDesign(coat);
           setLang('plain');
           setStep('design');
+          reconnectSaveIdentity(coat);
           return;
         } catch { /* bad hash payload — fall through to autosave/describe */ }
       }
@@ -426,6 +446,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
           setDesign(envelope.coat);
           setLang('plain');
           setStep('design');
+          reconnectSaveIdentity(envelope.coat);
           return;
         }
       } catch { /* corrupt/missing autosave — ignored silently */ }
@@ -439,7 +460,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [initialDesign]);
+  }, []);
 
   // Fire the queued ?desc= auto-generation once `desc` has actually settled
   // to the query value — generate() reads `desc` via closure and awaits
@@ -603,6 +624,14 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     </div>
   );
 
+  // ── Header layout (task-18 brief §2) — pure inline-vs-overflow decision
+  // lives in header-layout.js; the ONE thing that's runtime data, not
+  // layout, is whether Library even has anything to link to. Re-read on
+  // every render (cheap; picks up a Save that just happened for free). ──
+  const libraryNonEmpty = listDesigns(localStorage).length > 0;
+  const { inline: headerInline, overflow: headerOverflow } = headerControls(isMobile);
+  const quietBtnStyle = { background: 'none', border: 'none', color: C.muted, padding: '9px 6px', fontSize: 13.5, cursor: 'pointer', fontFamily: F.sans };
+
   return (
     <div style={{ height: isMobile ? 'auto' : '100vh', minHeight: isMobile ? '100vh' : undefined, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden' }}>
       {/* Header */}
@@ -636,10 +665,54 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
               <button onMouseDown={(e) => e.preventDefault()} onClick={confirmSaveAs} style={{ ...goldBtn, padding: '9px 14px', fontSize: 13 }}>Save</button>
             </div>
           ) : (
-            <button
-              onClick={startSave}
-              style={{ background: 'transparent', color: saved ? '#C9A24B' : C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5, fontFamily: F.sans }}
-            >{saved ? 'Saved ✓' : 'Save'}</button>
+            <>
+              {/* Library — quiet, only when there's something to see there. */}
+              {headerInline.includes('library') && libraryNonEmpty && (
+                <button onClick={() => navigate('/library')} style={quietBtnStyle}>Library</button>
+              )}
+              {headerInline.includes('save') && (
+                <button
+                  onClick={startSave}
+                  style={{ background: 'transparent', color: saved ? '#C9A24B' : C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5, fontFamily: F.sans }}
+                >{saved ? 'Saved ✓' : 'Save'}</button>
+              )}
+              {headerInline.includes('share') && design && (
+                <SharePopover design={design} surface="header" />
+              )}
+              {/* Mobile: Library/Save/Share collapse into a "⋯" overflow using
+                  the same MenuPopover primitive Share itself is built on
+                  (task-18 brief §2). Share, nested inside, is the exact same
+                  <SharePopover> component (its own MenuPopover flyout) —
+                  not a second hand-rolled copy/native-share implementation. */}
+              {headerOverflow.length > 0 && (
+                <MenuPopover
+                  label="More"
+                  align="right"
+                  trigger={(toggle) => (
+                    <button onClick={toggle} aria-label="More options" style={{ background: 'transparent', color: C.cream, border: `1px solid ${C.lineHi}`, borderRadius: 7, padding: '8px 13px', fontSize: 16, lineHeight: 1, cursor: 'pointer' }}>⋯</button>
+                  )}
+                >
+                  {(close) => (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 170 }}>
+                      {headerOverflow.includes('library') && libraryNonEmpty && (
+                        <MenuItem onClick={() => { close(); navigate('/library'); }}>Library</MenuItem>
+                      )}
+                      {headerOverflow.includes('save') && (
+                        <MenuItem onClick={() => { close(); startSave(); }} style={{ opacity: design ? 1 : .5 }}>{saved ? 'Saved ✓' : 'Save'}</MenuItem>
+                      )}
+                      {headerOverflow.includes('share') && design && (
+                        <SharePopover
+                          design={design}
+                          surface="header"
+                          align="left"
+                          trigger={(t) => <MenuItem onClick={t}>Share</MenuItem>}
+                        />
+                      )}
+                    </div>
+                  )}
+                </MenuPopover>
+              )}
+            </>
           )}
           <button
             onClick={() => openDownload('header')}

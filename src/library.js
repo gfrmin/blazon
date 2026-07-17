@@ -29,6 +29,7 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { normalize } from './model/achievement.js';
+import { designHash } from './share/codec.js';
 
 /** @typedef {{v: 1, coat: import('./model/types.js').Coat}} Envelope */
 /**
@@ -183,6 +184,39 @@ export function deleteDesign(storage = defaultStorage(), id) {
   const next = entries.filter((e) => !(e && e.id === id));
   if (next.length === entries.length) return false; // missing id — no-op
   return writeEntries(storage, next);
+}
+
+/**
+ * Find the library entry whose CURRENT coat hashes (via `designHash`,
+ * src/share/codec.js) to `hash` — the Task 18 §2b save-identity reconnect.
+ * Task 16 left `currentId` in-memory only, so any path that LOADS a design
+ * into the Studio (a hash restore on mount/reload, `/a/`'s "Open in Studio",
+ * an Open click from `/library`) has no way to know the design it just
+ * loaded already has a library entry — without this, the next Save would
+ * create a duplicate instead of overwriting. Studio calls this right after
+ * loading a design and, on a hit, sets `currentId` to the returned entry's
+ * id.
+ *
+ * O(n) hashing over the whole library per call — fine at MVP library sizes;
+ * revisit (e.g. a cached hash column) if that ever shows up as real cost.
+ * Never throws: a falsy `hash`, an empty/corrupt library, or a hashing
+ * failure on any one entry all resolve to `null` (that entry is skipped, not
+ * fatal to the search).
+ * @param {Storage} storage
+ * @param {string} hash
+ * @returns {Promise<LibraryEntry | null>}
+ */
+export async function findByHash(storage = defaultStorage(), hash) {
+  if (!hash) return null;
+  for (const entry of listDesigns(storage)) {
+    try {
+      if ((await designHash(entry.envelope.coat)) === hash) return entry;
+    } catch {
+      // Hashing shouldn't throw for a normalize()d coat, but a corrupt entry
+      // must not abort the whole search — skip it and keep looking.
+    }
+  }
+  return null;
 }
 
 /**

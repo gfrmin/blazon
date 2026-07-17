@@ -716,9 +716,32 @@ test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewr
 test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
   for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
     'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
-    'picked', 'index', 'surface', 'format', 'on', 'library_size']) {
+    'picked', 'index', 'surface', 'format', 'on', 'library_size', 'design_code', 'cta']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
+});
+
+// shared_view_opened{design_code} / share_opened|share_link_copied|
+// share_native_used{surface} (task-18 brief §1/§2) — the brief's own hard
+// requirement: "share/shared_view events carry design_code (hash) + enums
+// only — NEVER the payload or any free text". `design_code` and `surface`
+// survive; a hypothetical payload/motto/desc prop on the SAME event would
+// not, even though nothing in this app's real call-sites ever adds one.
+test('sanitizeEvent: shared_view_opened — design_code (a hash) survives; a hypothetical payload/motto prop would not', () => {
+  const raw = {
+    event: 'shared_view_opened',
+    properties: { design_code: 'a1b2c3d4', token: 't1', payload: 'cSGVsbG8', motto: 'Fortis et Fidelis' },
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.properties, { design_code: 'a1b2c3d4', token: 't1' });
+});
+
+test('sanitizeEvent: shared_view_cta/share_opened — cta/surface (enums) survive; a hypothetical desc/coat prop would not', () => {
+  const cta = sanitizeEvent({ event: 'shared_view_cta', properties: { cta: 'make_own', desc: 'a sailor from Galway' } }, ORIGIN);
+  assert.deepEqual(cta.properties, { cta: 'make_own' });
+
+  const shareOpened = sanitizeEvent({ event: 'share_opened', properties: { surface: 'header', coat: { field: 'Gules' } } }, ORIGIN);
+  assert.deepEqual(shareOpened.properties, { surface: 'header' });
 });
 
 // design_saved{library_size} (task-16 brief §2) — library_size is a COUNT;

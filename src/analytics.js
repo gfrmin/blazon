@@ -268,13 +268,19 @@ export function _sanitizeExceptionList(list) {
 //   above for design_edited; `on` is a plain boolean, not free text)
 //   design_saved{library_size} (task-16 brief §2 — library_size is a COUNT,
 //   never the design's name or coat)
+//   shared_view_opened{design_code} shared_view_cta{cta} remix_started
+//   share_opened{surface} share_link_copied{surface} share_native_used{surface}
+//   (task-18 brief §1/§2 — `design_code` is the SHA-256 designHash of the
+//   coat AST, src/share/codec.js, NEVER the payload string or any free text;
+//   `cta`/`surface` are plain app-controlled enums, same treatment as
+//   `outcome`/`part`/`control` above)
 //   (blazon_copied/describe_started/blazon_lang_toggled/landing_viewed/
-//    print_interest_clicked/$pageview carry no props at all)
+//    print_interest_clicked/$pageview/remix_started carry no props at all)
 const OWN_EVENT_PROPS = [
   'source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
   'part', 'control', 'is_first_edit', 'ms_since_submit',
   'query_len', 'hits', 'picked', 'index', 'surface', 'format',
-  'on', 'library_size',
+  'on', 'library_size', 'design_code', 'cta',
 ];
 
 // (b) Our super-props — posthog.register()'d in _computeInitialSuperProps

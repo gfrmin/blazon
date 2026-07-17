@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 
 import {
   STORAGE_KEY,
-  listDesigns, getDesign, saveDesign, renameDesign, deleteDesign, setUnlocked,
+  listDesigns, getDesign, saveDesign, renameDesign, deleteDesign, setUnlocked, findByHash,
 } from '../library.js';
 import { normalize } from '../model/achievement.js';
+import { designHash } from '../share/codec.js';
 
 // A Map-backed storage stub — no real localStorage under `node --test`
 // (brief §"Tests").
@@ -222,4 +223,49 @@ test('quota/write failure → renameDesign/deleteDesign/setUnlocked also fail wi
   assert.doesNotThrow(() => assert.equal(renameDesign(failingStorage, e.id, 'B'), null));
   assert.doesNotThrow(() => assert.equal(deleteDesign(failingStorage, e.id), false));
   assert.doesNotThrow(() => assert.equal(setUnlocked(failingStorage, e.id, true), null));
+});
+
+// ── findByHash (Task 18 §2b — the save-identity reconnect) ──
+
+test('findByHash: finds the entry whose current coat hashes to the given hash', async () => {
+  const storage = makeStorage();
+  const a = saveDesign(storage, { name: 'A', coat: { field: 'Gules' } });
+  const b = saveDesign(storage, { name: 'B', coat: { field: 'Azure' } });
+
+  const hashB = await designHash(b.envelope.coat);
+  const found = await findByHash(storage, hashB);
+  assert.ok(found);
+  assert.equal(found.id, b.id);
+
+  const hashA = await designHash(a.envelope.coat);
+  assert.equal((await findByHash(storage, hashA)).id, a.id);
+});
+
+test('findByHash: no matching entry → null (never throws)', async () => {
+  const storage = makeStorage();
+  saveDesign(storage, { name: 'A', coat: { field: 'Gules' } });
+  const unrelatedHash = await designHash({ field: 'Vert', ordinary: 'bend' });
+  assert.equal(await findByHash(storage, unrelatedHash), null);
+});
+
+test('findByHash: falsy hash or empty library → null', async () => {
+  const storage = makeStorage();
+  assert.equal(await findByHash(storage, ''), null);
+  assert.equal(await findByHash(storage, null), null);
+  assert.equal(await findByHash(storage, undefined), null);
+  saveDesign(storage, { name: 'A', coat: { field: 'Gules' } });
+  assert.equal(await findByHash(makeStorage(), 'deadbeef'), null); // fresh empty storage
+});
+
+test('findByHash: an edit changes the hash — the OLD hash no longer matches, the NEW one does', async () => {
+  const storage = makeStorage();
+  const original = saveDesign(storage, { name: 'A', coat: { field: 'Gules' } });
+  const oldHash = await designHash(original.envelope.coat);
+
+  const edited = saveDesign(storage, { id: original.id, coat: { field: 'Azure' } });
+  assert.equal(edited.id, original.id); // overwrite, not a duplicate
+
+  assert.equal(await findByHash(storage, oldHash), null);
+  const newHash = await designHash(edited.envelope.coat);
+  assert.equal((await findByHash(storage, newHash)).id, original.id);
 });

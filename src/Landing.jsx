@@ -5,6 +5,7 @@ import { HoverBtn, LangToggle, Lift } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn, goldBtnHover, eyebrow, pageWash, parchSurface } from './theme.js';
 import { GildedRule, FrameCorners, ParchInset, DropCap } from './components/Ornament.jsx';
+import LibraryCard from './components/LibraryCard.jsx';
 import {
   TINCTURES, ORDINARY_ORDER, CHARGES, blazon, cap,
   HERO_FIELDS, HERO_SYMBOLS, REEL, contrastPool, pickContrast,
@@ -12,6 +13,8 @@ import {
 import { fetchCharge } from './charges/recolor.js';
 import { artFile } from './charges/manifest.js';
 import { track } from './analytics.js';
+import { navigate } from './router.js';
+import { listDesigns } from './library.js';
 
 const LOGO = (
   <svg width="28" height="32" viewBox="0 0 30 34">
@@ -49,6 +52,10 @@ export default function Landing({ onOpenStudio }) {
   const isMobile = useMediaQuery('(max-width: 720px)');
   const isTablet = useMediaQuery('(max-width: 1000px)');
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  // The nav link only ever appears once there's something to see there
+  // (task-18 brief §3) — re-read on every render (cheap; picks up a Save
+  // that just happened without any extra state/effect of its own).
+  const libraryNonEmpty = listDesigns().length > 0;
 
   // Ref-guarded (not a bare effect-on-mount) so StrictMode's dev-only
   // double-invoke of mount effects can't double-fire this "once" event —
@@ -164,6 +171,9 @@ export default function Landing({ onOpenStudio }) {
               <a href="#gallery" style={navLink}>Gallery</a>
               <a href="#pricing" style={navLink}>Pricing</a>
             </>}
+            {libraryNonEmpty && (
+              <a href="#" onClick={(e) => { e.preventDefault(); navigate('/library'); }} style={navLink}>Library</a>
+            )}
             <HoverBtn onClick={() => onOpenStudio('nav')} style={{ ...goldBtn, padding: '11px 18px', fontSize: 14.5 }} hoverStyle={goldBtnHover}>Open the Studio</HoverBtn>
           </nav>
         </div>
@@ -324,12 +334,7 @@ export default function Landing({ onOpenStudio }) {
         <h2 style={h2Style}>Made with Blazon</h2>
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 26, marginTop: 44 }}>
           {GALLERY.map((g) => (
-            <Lift key={g.title} style={{ ...parchSurface, borderRadius: 6, padding: '30px 24px 24px', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', position: 'relative' }}>
-              <ParchInset />
-              <div style={{ width: 116 }}><Shield design={g.design} /></div>
-              <div style={{ fontFamily: F.serif, fontSize: 23, fontWeight: 600, color: C.parchInk, margin: '18px 0 5px' }}>{g.title}</div>
-              <div style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 14.5, color: C.parchInk2, lineHeight: 1.4 }}>{blazon(g.design, 'formal')}</div>
-            </Lift>
+            <LibraryCard key={g.title} design={g.design} title={g.title} />
           ))}
         </div>
       </section>
