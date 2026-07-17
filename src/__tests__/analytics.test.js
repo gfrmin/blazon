@@ -3,8 +3,98 @@ import assert from 'node:assert/strict';
 
 import {
   track, setSuperProps, _enqueue, _gateMode, _computeInitialSuperProps, _resetForTests,
-  _sanitizePathname, _sanitizeUrl, _sanitizeReferrer, _sanitizeEventForPostHog,
+  _sanitizePathname, _sanitizeUrl, _sanitizeReferrer,
+  _sanitizeExceptionFrameFilename, _sanitizeExceptionList, _sanitizeProps,
+  sanitizeEvent, SAFE_PROPS, _sanitizeFailureCount,
 } from '../analytics.js';
+
+const ORIGIN = 'https://blazon.example';
+
+// Standard posthog-js-computed properties present on (virtually) every real
+// captured event, regardless of event name — sourced from
+// node_modules/posthog-js/lib/src/utils/event-utils.js's getEventProperties/
+// getPersonInfo and posthog-core.js's calculateEventProperties, cross-checked
+// against a live capture (see task-7-report.md's "Hardening" section for the
+// network-level evidence). Spread into each representative event below and
+// overridden per-test so every whole-payload assertion stays realistic
+// without 40 duplicated lines per test.
+function basePostHogProps(overrides = {}) {
+  return {
+    token: 'phc_faketestkey000000000000000000000000',
+    distinct_id: '0198abc-device-0000-0000-000000000000',
+    $device_id: '0198abc-device-0000-0000-000000000000',
+    $session_id: '0198abc-session-000-0000-000000000000',
+    $window_id: '0198abc-window-0000-0000-000000000000',
+    $groups: {},
+    $is_identified: false,
+    $process_person_profile: false,
+    $lib: 'web',
+    $lib_version: '1.404.0',
+    $insert_id: 'a1b2c3d4',
+    $time: 1783000000.123,
+    $os: 'Linux',
+    $os_version: '',
+    $browser: 'Chrome',
+    $browser_version: 128,
+    $browser_language: 'en-US',
+    $browser_language_prefix: 'en',
+    $device: '',
+    $device_type: 'Desktop',
+    $screen_height: 1080,
+    $screen_width: 1920,
+    $viewport_height: 963,
+    $viewport_width: 1920,
+    $raw_user_agent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    $timezone: 'Etc/UTC',
+    $timezone_offset: 0,
+    $host: 'blazon.example',
+    $referring_domain: '$direct',
+    // dangerous/unwanted internals — deliberately included in the RAW input
+    // to prove the allowlist drops them, not just that it keeps the good stuff
+    title: 'Blazon — Design a coat of arms',
+    utm_source: null,
+    gclid: null,
+    $search_engine: null,
+    $config_defaults: '2026-06-25',
+    $sdk_debug_retry_queue_size: 0,
+    ...overrides,
+  };
+}
+
+function safePostHogProps(overrides = {}) {
+  return {
+    token: 'phc_faketestkey000000000000000000000000',
+    distinct_id: '0198abc-device-0000-0000-000000000000',
+    $device_id: '0198abc-device-0000-0000-000000000000',
+    $session_id: '0198abc-session-000-0000-000000000000',
+    $window_id: '0198abc-window-0000-0000-000000000000',
+    $groups: {},
+    $is_identified: false,
+    $process_person_profile: false,
+    $lib: 'web',
+    $lib_version: '1.404.0',
+    $insert_id: 'a1b2c3d4',
+    $time: 1783000000.123,
+    $os: 'Linux',
+    $os_version: '',
+    $browser: 'Chrome',
+    $browser_version: 128,
+    $browser_language: 'en-US',
+    $browser_language_prefix: 'en',
+    $device: '',
+    $device_type: 'Desktop',
+    $screen_height: 1080,
+    $screen_width: 1920,
+    $viewport_height: 963,
+    $viewport_width: 1920,
+    $raw_user_agent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+    $timezone: 'Etc/UTC',
+    $timezone_offset: 0,
+    $host: 'blazon.example',
+    $referring_domain: '$direct',
+    ...overrides,
+  };
+}
 
 // This module's DNT/no-key gating (`mode`) is computed once at import time
 // from real `navigator`/`import.meta.env` — under plain `node --test` there
@@ -150,66 +240,407 @@ test('_sanitizeReferrer: empty/falsy referrer passes through unchanged', () => {
   assert.equal(_sanitizeReferrer(undefined, 'https://blazon.example'), undefined);
 });
 
-test('_sanitizeEventForPostHog: strips motto/desc/payload from every current/initial/session_entry URL property, in one event', () => {
-  const origin = 'https://blazon.example';
-  const event = {
+// ── exception-list frame filename sanitization ──────────────────────────
+
+test('_sanitizeExceptionFrameFilename: sanitizes a filename that happens to equal the live motto-hash URL', () => {
+  assert.equal(
+    _sanitizeExceptionFrameFilename('https://blazon.example/studio#cMOTTO_PER_ARDUA'),
+    'https://blazon.example/studio'
+  );
+});
+
+test('_sanitizeExceptionFrameFilename: an ordinary asset URL passes through unchanged (nothing to strip)', () => {
+  assert.equal(
+    _sanitizeExceptionFrameFilename('https://blazon.example/assets/index-C6Z84Xhg.js'),
+    'https://blazon.example/assets/index-C6Z84Xhg.js'
+  );
+});
+
+test('_sanitizeExceptionFrameFilename: non-URL-shaped filenames (webpack://, <anonymous>) pass through, not dropped', () => {
+  assert.equal(_sanitizeExceptionFrameFilename('<anonymous>'), '<anonymous>');
+  assert.equal(_sanitizeExceptionFrameFilename('webpack-internal:///./src/Studio.jsx'), 'webpack-internal:///./src/Studio.jsx');
+});
+
+test('_sanitizeExceptionList: sanitizes only the filename field of every frame, leaves the rest untouched', () => {
+  const list = [
+    {
+      type: 'TypeError',
+      value: "Cannot read properties of undefined (reading 'coat')",
+      mechanism: { type: 'onerror', handled: false, synthetic: false },
+      stacktrace: {
+        type: 'raw',
+        frames: [
+          { filename: 'https://blazon.example/assets/index-C6Z84Xhg.js', function: 'apply', lineno: 42, colno: 17, in_app: true },
+          { filename: 'https://blazon.example/studio#cMOTTO_PER_ARDUA', function: '<anonymous>', lineno: 1, colno: 1, in_app: true },
+        ],
+      },
+    },
+  ];
+  assert.deepEqual(_sanitizeExceptionList(list), [
+    {
+      type: 'TypeError',
+      value: "Cannot read properties of undefined (reading 'coat')",
+      mechanism: { type: 'onerror', handled: false, synthetic: false },
+      stacktrace: {
+        type: 'raw',
+        frames: [
+          { filename: 'https://blazon.example/assets/index-C6Z84Xhg.js', function: 'apply', lineno: 42, colno: 17, in_app: true },
+          { filename: 'https://blazon.example/studio', function: '<anonymous>', lineno: 1, colno: 1, in_app: true },
+        ],
+      },
+    },
+  ]);
+});
+
+test('_sanitizeExceptionList: a malformed (non-array) shape is dropped, not passed through raw', () => {
+  assert.equal(_sanitizeExceptionList('not an array'), undefined);
+  assert.equal(_sanitizeExceptionList(undefined), undefined);
+});
+
+// ── _sanitizeProps / sanitizeEvent — allowlist inversion (Hardening) ─────
+//
+// The previous fix (review round 1) was a DENYLIST of nine named
+// URL-derived properties — proven leaky by its own construction, since
+// $prev_pageview_pathname was found only by reading posthog-js source after
+// the finding had already named six. Everything below tests the allowlist
+// that replaced it: `SAFE_PROPS` names every property this app wants; every
+// other property is dropped, not rewritten, by construction — including
+// ones nobody has thought to name yet (see the "novel property" test).
+//
+// Every test in this section asserts against a fully explicit expected
+// object (`assert.deepEqual` on the WHOLE properties bag, not a substring
+// grep) — per the brief: "prove the negative with whole-payload equality,
+// not substring greps: greps only catch fields you thought to look for."
+
+test('_sanitizeProps: a flat properties bag — safe keys survive, special keys are rewritten, unknown keys dropped', () => {
+  assert.deepEqual(
+    _sanitizeProps({
+      desc_length: 42,
+      token: 't1',
+      $current_url: 'https://blazon.example/studio#cMOTTO',
+      $referrer: 'https://blazon.example/a/cPAYLOAD',
+      totally_unheard_of_prop: 'nope',
+    }, ORIGIN),
+    { desc_length: 42, token: 't1', $current_url: 'https://blazon.example/studio' }
+  );
+});
+
+test('sanitizeEvent: $pageview from a motto-bearing /studio#<payload> URL — whole-payload equality', () => {
+  const raw = {
     uuid: 'u1',
     event: '$pageview',
-    properties: {
+    timestamp: '2026-07-16T12:00:00.000Z',
+    properties: basePostHogProps({
       $current_url: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA',
-      $initial_current_url: 'https://blazon.example/a/cSHARED_PAYLOAD_STRING?desc=grandmother+story',
-      $session_entry_url: 'https://blazon.example/studio?desc=grandmother+story',
-      $pathname: '/a/cSHARED_PAYLOAD_STRING',
+      $initial_current_url: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA',
+      $session_entry_url: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA',
+      $pathname: '/studio',
       $initial_pathname: '/studio',
-      $session_entry_pathname: '/a/cANOTHER_PAYLOAD',
-      $referrer: 'https://blazon.example/a/cSHARED_PAYLOAD_STRING',
-      $initial_referrer: 'https://www.google.com/search?q=coat+of+arms',
+      $session_entry_pathname: '/studio',
+      $referrer: '$direct',
+      $initial_referrer: '$direct',
       $session_entry_referrer: '$direct',
-      $host: 'blazon.example',
-      $prev_pageview_pathname: '/a/cPREVIOUS_PAGE_PAYLOAD', // caught live: raw prev-page pathname
-      desc_length: 152, // an ordinary hand-written prop — must survive untouched
-    },
+      $initial_host: 'blazon.example',
+      $session_entry_host: 'blazon.example',
+      $initial_referring_domain: '$direct',
+      $session_entry_referring_domain: '$direct',
+    }),
   };
-  const clean = _sanitizeEventForPostHog(event, origin);
+  const clean = sanitizeEvent(raw, ORIGIN);
   const dump = JSON.stringify(clean);
-
-  // The actual deliverable: no free text / payload substrings anywhere.
   assert.ok(!dump.includes('MOTTO'), dump);
-  assert.ok(!dump.includes('PAYLOAD'), dump);
-  assert.ok(!dump.includes('grandmother'), dump);
-  assert.ok(!dump.includes('#'), dump); // no hash survives anywhere
-  assert.ok(!dump.includes('desc='), dump); // no query survives anywhere
+  assert.ok(!dump.includes('#'), dump);
 
-  assert.deepEqual(clean.properties, {
-    $current_url: 'https://blazon.example/studio',
-    $initial_current_url: 'https://blazon.example/a',
-    $session_entry_url: 'https://blazon.example/studio',
-    $pathname: '/a',
-    $initial_pathname: '/studio',
-    $session_entry_pathname: '/a',
-    $initial_referrer: 'https://www.google.com/search?q=coat+of+arms', // external — kept
-    $session_entry_referrer: '$direct', // not a URL — kept
-    $host: 'blazon.example', // untouched — never carries payload/free text
-    $prev_pageview_pathname: '/a', // collapsed same as $pathname
-    desc_length: 152, // untouched
-    // $referrer: dropped entirely — it was same-origin
+  assert.deepEqual(clean, {
+    uuid: 'u1',
+    event: '$pageview',
+    timestamp: '2026-07-16T12:00:00.000Z',
+    properties: safePostHogProps({
+      $current_url: 'https://blazon.example/studio',
+      $initial_current_url: 'https://blazon.example/studio',
+      $session_entry_url: 'https://blazon.example/studio',
+      $pathname: '/studio',
+      $initial_pathname: '/studio',
+      $session_entry_pathname: '/studio',
+      $referrer: '$direct',
+      $initial_referrer: '$direct',
+      $session_entry_referrer: '$direct',
+      $initial_host: 'blazon.example',
+      $session_entry_host: 'blazon.example',
+      $initial_referring_domain: '$direct',
+      $session_entry_referring_domain: '$direct',
+    }),
   });
+});
+
+test('sanitizeEvent: download_free — own event prop survives, everything unnamed is dropped', () => {
+  const raw = {
+    uuid: 'u2',
+    event: 'download_free',
+    timestamp: '2026-07-16T12:05:00.000Z',
+    properties: basePostHogProps({
+      format: 'png',
+      has_library: true,
+      designs_saved_count: 2,
+      has_purchased: false,
+      arrived_via_share: false,
+      $current_url: 'https://blazon.example/studio',
+      $pathname: '/studio',
+      $referrer: 'https://www.google.com/',
+      // a plausible future/unnamed internal — must not survive
+      $some_new_internal_flag: true,
+    }),
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.properties, safePostHogProps({
+    format: 'png',
+    has_library: true,
+    designs_saved_count: 2,
+    has_purchased: false,
+    arrived_via_share: false,
+    $current_url: 'https://blazon.example/studio',
+    $pathname: '/studio',
+    $referrer: 'https://www.google.com/', // external — kept
+  }));
+});
+
+test('sanitizeEvent: $exception — sanitizes both the standard URL props AND $exception_list frame filenames', () => {
+  const raw = {
+    uuid: 'u3',
+    event: '$exception',
+    timestamp: '2026-07-16T12:10:00.000Z',
+    properties: basePostHogProps({
+      $current_url: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA',
+      $pathname: '/studio',
+      $referrer: '$direct',
+      $exception_level: 'error',
+      $exception_list: [
+        {
+          type: 'TypeError',
+          value: "Cannot read properties of undefined (reading 'coat')",
+          mechanism: { type: 'onerror', handled: false, synthetic: false },
+          stacktrace: {
+            type: 'raw',
+            frames: [
+              { filename: 'https://blazon.example/assets/index-C6Z84Xhg.js', function: 'apply', lineno: 42, colno: 17, in_app: true },
+              // a worst-case synthetic frame carrying the live page hash —
+              // proves filename sanitization, not just $current_url's.
+              { filename: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA', function: '<anonymous>', lineno: 1, colno: 1, in_app: true },
+            ],
+          },
+        },
+      ],
+    }),
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  const dump = JSON.stringify(clean);
+  assert.ok(!dump.includes('MOTTO'), dump);
+
+  assert.deepEqual(clean.properties, safePostHogProps({
+    $current_url: 'https://blazon.example/studio',
+    $pathname: '/studio',
+    $referrer: '$direct',
+    $exception_level: 'error',
+    $exception_list: [
+      {
+        type: 'TypeError',
+        value: "Cannot read properties of undefined (reading 'coat')",
+        mechanism: { type: 'onerror', handled: false, synthetic: false },
+        stacktrace: {
+          type: 'raw',
+          frames: [
+            { filename: 'https://blazon.example/assets/index-C6Z84Xhg.js', function: 'apply', lineno: 42, colno: 17, in_app: true },
+            { filename: 'https://blazon.example/studio', function: '<anonymous>', lineno: 1, colno: 1, in_app: true },
+          ],
+        },
+      },
+    ],
+  }));
+});
+
+test('sanitizeEvent: entry $pageview at /studio?desc=<free text> — query text never survives', () => {
+  const raw = {
+    uuid: 'u4',
+    event: '$pageview',
+    timestamp: '2026-07-16T12:15:00.000Z',
+    properties: basePostHogProps({
+      $current_url: 'https://blazon.example/studio?desc=My%20grandmother%20was%20an%20astronomer',
+      $initial_current_url: 'https://blazon.example/studio?desc=My%20grandmother%20was%20an%20astronomer',
+      $pathname: '/studio',
+      $initial_pathname: '/studio',
+      $referrer: '$direct',
+    }),
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  const dump = JSON.stringify(clean);
+  assert.ok(!dump.includes('grandmother'), dump);
+  assert.ok(!dump.includes('desc='), dump);
+
+  assert.deepEqual(clean.properties, safePostHogProps({
+    $current_url: 'https://blazon.example/studio',
+    $initial_current_url: 'https://blazon.example/studio',
+    $pathname: '/studio',
+    $initial_pathname: '/studio',
+    $referrer: '$direct',
+  }));
+});
+
+test('sanitizeEvent: /a/<payload> share pageview — pathname collapses, same-origin referrer dropped', () => {
+  const raw = {
+    uuid: 'u5',
+    event: '$pageview',
+    timestamp: '2026-07-16T12:20:00.000Z',
+    properties: basePostHogProps({
+      arrived_via_share: true,
+      $current_url: 'https://blazon.example/a/cSHARED_PAYLOAD_STRING',
+      $pathname: '/a/cSHARED_PAYLOAD_STRING',
+      $prev_pageview_pathname: '/a/cPREVIOUS_PAGE_PAYLOAD',
+      // the referrer is our OWN previous motto-bearing page — must be dropped
+      $referrer: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA',
+    }),
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  const dump = JSON.stringify(clean);
+  assert.ok(!dump.includes('PAYLOAD'), dump);
+  assert.ok(!dump.includes('MOTTO'), dump);
+
+  assert.deepEqual(clean.properties, safePostHogProps({
+    arrived_via_share: true,
+    $current_url: 'https://blazon.example/a',
+    $pathname: '/a',
+    $prev_pageview_pathname: '/a',
+    // $referrer: dropped — same-origin
+  }));
   assert.ok(!('$referrer' in clean.properties));
 });
 
-test('_sanitizeEventForPostHog: does not mutate the input event/properties objects', () => {
-  const original = { event: '$pageview', properties: { $current_url: 'https://blazon.example/studio#x' } };
+// ── the point of this task: novel/unnamed properties are dropped by construction ──
+
+test('drops unknown properties even when they carry the motto', () => {
+  const raw = {
+    event: '$pageview',
+    properties: {
+      token: 'phc_faketestkey000000000000000000000000', // safe — kept, for contrast
+      // an invented property no one has named yet, shaped exactly like the
+      // kind of thing a future posthog-js version could add unannounced:
+      $some_future_url_prop: 'https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA_FUTURE_LEAK',
+      $another_new_posthog_internal: 'anything at all',
+    },
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.properties, { token: 'phc_faketestkey000000000000000000000000' });
+  assert.ok(!JSON.stringify(clean).includes('MOTTO'));
+  assert.ok(!('$some_future_url_prop' in clean.properties));
+  assert.ok(!('$another_new_posthog_internal' in clean.properties));
+});
+
+test('both polarities: a sanitizer that dropped everything would fail this — safe props positively survive', () => {
+  const raw = {
+    event: 'generate_result',
+    properties: {
+      outcome: 'ai',
+      latency_ms: 1234,
+      token: 'phc_x',
+      distinct_id: 'd1',
+      $session_id: 's1',
+      unnamed_junk: 'drop me',
+    },
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  // Every safe key is individually present and correctly valued — a
+  // "drop everything" implementation fails every one of these.
+  assert.equal(clean.properties.outcome, 'ai');
+  assert.equal(clean.properties.latency_ms, 1234);
+  assert.equal(clean.properties.token, 'phc_x');
+  assert.equal(clean.properties.distinct_id, 'd1');
+  assert.equal(clean.properties.$session_id, 's1');
+  // ...and the one unnamed key does not.
+  assert.ok(!('unnamed_junk' in clean.properties));
+});
+
+test('sanitizeEvent: also sanitizes $set_once (posthog can attach $initial_* URL props there too, independent of properties)', () => {
+  // posthog-core.js's _calculate_set_once_properties populates data.$set_once
+  // from persistence.get_initial_props() whenever person processing is
+  // active — the same $initial_current_url/$initial_pathname/$initial_referrer
+  // family that lives in `properties`, but on a SEPARATE top-level field the
+  // original review-round-1 fix never touched. This app doesn't call
+  // identify() today (so $set_once is unpopulated in practice — see
+  // task-7-report.md), but the allowlist covers it defensively regardless.
+  const raw = {
+    event: '$identify',
+    properties: { token: 'phc_x', $lib: 'web' },
+    $set_once: {
+      $initial_current_url: 'https://blazon.example/studio#cSECRET_MOTTO',
+      $initial_pathname: '/studio',
+      $initial_referrer: '$direct',
+      mystery_prop: 'should not survive',
+    },
+  };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.$set_once, {
+    $initial_current_url: 'https://blazon.example/studio',
+    $initial_pathname: '/studio',
+    $initial_referrer: '$direct',
+  });
+  assert.ok(!JSON.stringify(clean).includes('SECRET_MOTTO'));
+});
+
+test('sanitizeEvent: does not mutate the input event/properties objects', () => {
+  const original = { event: '$pageview', properties: { $current_url: 'https://blazon.example/studio#x', token: 't1' } };
   const snapshotProps = { ...original.properties };
-  _sanitizeEventForPostHog(original, 'https://blazon.example');
+  sanitizeEvent(original, ORIGIN);
   assert.deepEqual(original.properties, snapshotProps);
 });
 
-test('_sanitizeEventForPostHog: events with no properties (or null) pass through untouched, no throw', () => {
+test('sanitizeEvent: events with no properties (or null) pass through untouched, no throw', () => {
   assert.doesNotThrow(() => {
-    assert.equal(_sanitizeEventForPostHog(null, 'https://blazon.example'), null);
+    assert.equal(sanitizeEvent(null, ORIGIN), null);
     const noProps = { event: '$identify' };
-    assert.equal(_sanitizeEventForPostHog(noProps, 'https://blazon.example'), noProps);
+    assert.deepEqual(sanitizeEvent(noProps, ORIGIN), noProps);
   });
+});
+
+// ── fail-closed: sanitization throwing drops the WHOLE event, never passes it through raw ──
+
+test('fail-closed: a property whose getter throws drops the whole event, not a partial passthrough', () => {
+  const before = _sanitizeFailureCount();
+  const evilProps = {};
+  Object.defineProperty(evilProps, 'desc_length', {
+    enumerable: true,
+    get() { throw new Error('boom — simulated hostile/broken getter'); },
+  });
+  const event = { event: '$pageview', properties: evilProps };
+  assert.equal(sanitizeEvent(event, ORIGIN), null);
+  // The drop was counted (cheap in-memory counter, no I/O at drop time).
+  assert.equal(_sanitizeFailureCount(), before + 1);
+});
+
+test('fail-closed: a throwing $set_once likewise drops the whole event', () => {
+  const evilSetOnce = {};
+  Object.defineProperty(evilSetOnce, '$initial_current_url', {
+    enumerable: true,
+    get() { throw new Error('boom'); },
+  });
+  const event = { event: '$identify', properties: { token: 't1' }, $set_once: evilSetOnce };
+  assert.equal(sanitizeEvent(event, ORIGIN), null);
+});
+
+// ── SAFE_PROPS schema sanity ──────────────────────────────────────────────
+
+test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewritten, not allowlisted)', () => {
+  for (const key of ['$current_url', '$initial_current_url', '$session_entry_url',
+    '$pathname', '$initial_pathname', '$session_entry_pathname', '$prev_pageview_pathname',
+    '$referrer', '$initial_referrer', '$session_entry_referrer']) {
+    assert.ok(!SAFE_PROPS.has(key), `${key} should be handled by the URL/PATH/REFERRER rewrite, not plain-allowlisted`);
+  }
+});
+
+test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
+  for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
+    'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
+    'picked', 'index', 'surface', 'format']) {
+    assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
+  }
 });
 
 // track()/setSuperProps() themselves: under node --test `mode` is always
