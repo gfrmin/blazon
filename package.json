@@ -12,18 +12,22 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "npm run build:achievement-bundle && vite build",
+    "build:achievement-bundle": "node scripts/build-achievement-bundle.mjs",
     "preview": "vite preview",
+    "pretest": "npm run build:achievement-bundle",
     "test": "node --test",
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=blazon"
   },
   "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2",
     "posthog-js": "^1.404.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
+    "esbuild": "^0.21.5",
     "vite": "^5.4.0"
   }
 }
