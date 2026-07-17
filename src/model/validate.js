@@ -80,6 +80,37 @@ function warnCoat(coat) {
   return null;
 }
 
+// Attitude validity for a single achievement charge group (crest, or one side
+// of a supporter pair). Deliberately does NOT run the tincture rule: the crest
+// sits on a torse (not the field) and supporters stand outside the field
+// entirely, so "clashes with the field" isn't a heraldic concept for them —
+// only their posture (attitude) can still be wrong for the chosen charge.
+function warnAchievementGroup(g) {
+  if (g?.object?.kind === 'charge' && g.object.attitude && !attitudeValid(g.object.key, g.object.attitude)) {
+    return attitudeMessage(g);
+  }
+  return null;
+}
+
+function warnAchievement(a) {
+  if (!a) return null;
+  const crestWarn = warnAchievementGroup(a.crest);
+  if (crestWarn) return crestWarn;
+  if (a.supporters) {
+    const dexterWarn = warnAchievementGroup(a.supporters.dexter);
+    if (dexterWarn) return dexterWarn;
+    const sinisterWarn = warnAchievementGroup(a.supporters.sinister);
+    if (sinisterWarn) return sinisterWarn;
+  }
+  return null;
+}
+
+const MOTTO_MAX = 30;
+function warnMotto(motto) {
+  if (!motto || motto.length <= MOTTO_MAX) return null;
+  return `That motto runs ${motto.length} characters — mottoes longer than ${MOTTO_MAX} get cramped on the scroll. Trim it down.`;
+}
+
 /**
  * @param {import('./types.js').Coat|object} d  A Coat AST or the legacy flat object.
  * @returns {string|null}
@@ -87,7 +118,7 @@ function warnCoat(coat) {
 export function computeWarn(d) {
   const coat = normalize(d);
   if (!coat) return null;
-  return warnCoat(coat);
+  return warnCoat(coat) || warnAchievement(coat.achievement) || warnMotto(coat.motto);
 }
 
 export { fieldClass };

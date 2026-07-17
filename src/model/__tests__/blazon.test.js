@@ -234,3 +234,78 @@ test('formal: motto is never included, even when coat.motto is set', () => {
   assert.doesNotMatch(out, /[Mm]otto/);
   assert.equal(out, blazon(fullAchievement, 'formal')); // motto changes nothing about the formal output
 });
+
+// ─────────────────────────────────────────────────────────────────────────
+// Achievement validation (M2/A4+A5, Task 11) — attitude validity for crest/
+// supporters, and motto length. The tincture rule deliberately does NOT
+// extend to crest/supporters: the crest sits on a torse (not the field) and
+// supporters stand outside the field entirely, so "clashes with the field"
+// isn't a heraldic concept for either of them.
+// ─────────────────────────────────────────────────────────────────────────
+
+test('fish-rampant supporter warns (attitude invalid for the charge)', () => {
+  const badSupporters = { dexter: { tincture: 'Or', object: { kind: 'charge', key: 'fish', attitude: 'rampant' } } };
+  const c = { ...fullAchievement, achievement: { ...fullAchievement.achievement, supporters: badSupporters } };
+  const w = computeWarn(c);
+  assert.ok(w && /can't be rampant/.test(w), w);
+});
+
+test('a valid supporter attitude does not warn', () => {
+  const okSupporters = { dexter: { tincture: 'Or', object: { kind: 'charge', key: 'fish', attitude: 'naiant' } } };
+  const c = { ...fullAchievement, achievement: { ...fullAchievement.achievement, supporters: okSupporters } };
+  assert.equal(computeWarn(c), null);
+});
+
+test('an invalid SINISTER supporter attitude (a split pair) also warns', () => {
+  const splitBad = {
+    dexter: { tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } },
+    sinister: { tincture: 'Argent', object: { kind: 'charge', key: 'fish', attitude: 'rampant' } },
+  };
+  const c = { ...fullAchievement, achievement: { ...fullAchievement.achievement, supporters: splitBad } };
+  const w = computeWarn(c);
+  assert.ok(w && /can't be rampant/.test(w), w);
+});
+
+test('an invalid crest attitude warns', () => {
+  const badCrest = { role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'fish', attitude: 'rampant' } };
+  const c = { ...fullAchievement, achievement: { ...fullAchievement.achievement, crest: badCrest } };
+  const w = computeWarn(c);
+  assert.ok(w && /can't be rampant/.test(w), w);
+});
+
+test('the tincture rule does not apply to the crest against the field (heraldically it sits on a torse, not the field)', () => {
+  // Field is Azure (colour); crest tincture also Azure (same class) — this
+  // would trip the shield's metal/colour rule if it applied here. It must not.
+  const c = {
+    ...heraldShield,
+    achievement: {
+      crest: { role: 'primary', number: 1, tincture: 'Azure', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } },
+    },
+  };
+  assert.equal(computeWarn(c), null);
+});
+
+test('the tincture rule does not apply to supporters against the field (they stand outside the field)', () => {
+  const c = {
+    ...heraldShield,
+    achievement: {
+      supporters: { dexter: { tincture: 'Azure', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } } },
+    },
+  };
+  assert.equal(computeWarn(c), null);
+});
+
+test('motto at 30 characters is fine; 31 warns', () => {
+  const ok = { ...heraldShield, motto: 'x'.repeat(30) };
+  const tooLong = { ...heraldShield, motto: 'x'.repeat(31) };
+  assert.equal(computeWarn(ok), null);
+  const w = computeWarn(tooLong);
+  assert.ok(w && /30/.test(w) && /scroll/.test(w), w);
+});
+
+test('validation warnings are non-blocking: computeWarn always returns a string or null, never throws', () => {
+  const c = { ...heraldShield, motto: 'x'.repeat(50) };
+  assert.doesNotThrow(() => computeWarn(c));
+  assert.equal(typeof computeWarn(c), 'string');
+  assert.equal(computeWarn(fullAchievement), null); // the default full achievement is itself clean
+});
