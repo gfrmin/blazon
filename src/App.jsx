@@ -4,6 +4,19 @@ import Studio from './Studio.jsx';
 import { useRoute, navigate } from './router.js';
 import { decodeCoat } from './share/codec.js';
 
+// Source handoff for the `studio_opened` event (task-7 brief §2). Landing's
+// several CTAs each know which surface opened the Studio; a bare navigate()
+// carries no payload, so we stash it one hop ahead in sessionStorage and
+// Studio's mount effect reads + clears it. Query-free per the brief ("a
+// module-level setter or sessionStorage handoff is fine"). Key must match
+// the read in Studio.jsx.
+const STUDIO_SOURCE_KEY = 'blazon:studio_source';
+
+function openStudio(source) {
+  try { sessionStorage.setItem(STUDIO_SOURCE_KEY, source); } catch { /* storage unavailable — Studio defaults to 'direct' */ }
+  navigate('/studio');
+}
+
 export default function App() {
   const { path } = useRoute();
 
@@ -17,11 +30,11 @@ export default function App() {
 
   // TODO(M3): /library view
   if (path === '/library') {
-    return <Landing onOpenStudio={() => navigate('/studio')} />;
+    return <Landing onOpenStudio={openStudio} />;
   }
 
   // '/' and any unknown path → Landing. No 404 handling by design (brief).
-  return <Landing onOpenStudio={() => navigate('/studio')} />;
+  return <Landing onOpenStudio={openStudio} />;
 }
 
 // Decodes a /a/<payload> share link and hands off into Studio pre-loaded
@@ -38,6 +51,8 @@ function ShareArrival({ payload }) {
       .then((decoded) => {
         if (cancelled) return;
         setCoat(decoded);
+        // Analytics super-prop (task-7 brief §1): booting from a /a/ share link.
+        try { sessionStorage.setItem('blazon:arrived_via_share', '1'); } catch { /* storage unavailable */ }
         navigate('/studio#' + payload, { replace: true });
       })
       .catch(() => {

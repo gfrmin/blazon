@@ -44,6 +44,13 @@ jobs:
           # Empty in prod → the widget renders nothing → the server fail-safe
           # blocks generation and the client uses its preset fallback.
           VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
+          # PostHog project key/host (task-7 brief §3) — both repo Variables,
+          # public by design like the Turnstile site key above. Empty key →
+          # analytics.js skips init entirely and stays on the dev
+          # console.debug stub in prod too; an absent var resolves to '',
+          # so this can never fail the build.
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v4

@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Blazon — design heraldically authentic coats of arms through natural language.",
-  "repository": { "type": "git", "url": "https://github.com/gfrmin/blazon" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gfrmin/blazon"
+  },
   "author": "Guy Freeman (https://gfrm.in)",
   "license": "AGPL-3.0-only",
   "scripts": {
@@ -15,6 +18,7 @@
     "deploy": "npm run build && npx wrangler pages deploy dist --project-name=blazon"
   },
   "dependencies": {
+    "posthog-js": "^1.404.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

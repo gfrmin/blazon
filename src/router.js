@@ -66,3 +66,14 @@ export function useRoute() {
   }, []);
   return loc;
 }
+
+// Non-hook subscription for consumers that aren't React components (task-7
+// brief §1 — analytics' `$pageview` wiring). `notify()` already treats every
+// subscriber as a plain `(loc) => void` callback — useRoute's `setLoc` just
+// happens to be one — so a bare callback subscribes the same way a
+// component does, no separate notification path needed. Returns an
+// unsubscribe function.
+export function onNavigate(cb) {
+  subscribers.add(cb);
+  return () => subscribers.delete(cb);
+}

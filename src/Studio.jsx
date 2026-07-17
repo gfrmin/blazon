@@ -9,6 +9,7 @@ import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat } from './share/codec.js';
+import { track } from './analytics.js';
 import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
@@ -42,6 +43,9 @@ const CHARGES_BY_CATEGORY = CHARGE_CATEGORIES
 const ARRANGEMENTS = ['in pale', 'in fess', 'in chief'];
 
 const AUTOSAVE_KEY = 'blazon:current';
+// Read once on mount, then cleared — set by App.jsx's openStudio() before
+// navigate() (task-7 brief §2, `studio_opened`). Key must match App.jsx.
+const STUDIO_SOURCE_KEY = 'blazon:studio_source';
 
 export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   // `arrivedViaShare` is accepted but unused for now — a later task (the
@@ -67,6 +71,28 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const [dsFailed, setDsFailed] = useState(false); // DrawShield img errored → degrade to local
   const [autoGenPending, setAutoGenPending] = useState(false); // queued ?desc= auto-generation
 
+  // ── Analytics bookkeeping (task-7 brief §2) — refs, not state: none of
+  //    these should trigger a re-render on their own. ──
+  const studioOpenedRef = useRef(false);   // guards the mount-once studio_opened (survives StrictMode's double-invoke)
+  const describeStartedRef = useRef(false); // describe_started fires once per Studio mount
+  const submitStartRef = useRef(0);         // performance.now() at the most recent generate() submit
+  const pendingFirstRenderRef = useRef(false); // true between a generate() success and the design's first paint
+  const hasEditedRef = useRef(false);       // has design_edited fired yet for the *current* design
+  const searchPickedRef = useRef(false);    // did the current charge-search session already end in a pick
+
+  // studio_opened — once per mount, with the CTA source Landing recorded
+  // (or 'direct' for a bare /studio visit / refresh / share arrival).
+  useEffect(() => {
+    if (studioOpenedRef.current) return;
+    studioOpenedRef.current = true;
+    let source = null;
+    try {
+      source = sessionStorage.getItem(STUDIO_SOURCE_KEY);
+      sessionStorage.removeItem(STUDIO_SOURCE_KEY);
+    } catch { /* storage unavailable — defaults to 'direct' */ }
+    track('studio_opened', { source: source || 'direct' });
+  }, []);
+
   // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
   //    returns a validated Coat. Falls back to a canned preset when the API
   //    isn't reachable / configured (offline, local dev, no key) so the
@@ -76,6 +102,8 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     setGenerating(true);
     setGenNotice(null);
     const started = Date.now();
+    submitStartRef.current = performance.now();
+    track('generate_submitted', { desc_length: desc.length, used_preset: selectedPreset != null });
     let next = null;
     let blocked = null; // 'rate' | 'challenge' — an explicit gate, not a fallback case
     try {
@@ -108,18 +136,23 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     if (blocked) {
       setGenerating(false);
       setGenNotice(blocked);
+      track('generate_result', { outcome: blocked === 'rate' ? 'rate_limited' : 'challenge_failed', latency_ms: Math.round(performance.now() - submitStartRef.current) });
       return; // stay on the describe step; don't silently preset on an explicit block
     }
+    const fromAi = !!next;
     if (!next) {
       const p = pickPreset(desc, selectedPreset);
       next = JSON.parse(JSON.stringify(p.design));
     }
     const elapsed = Date.now() - started; // hold the spinner briefly so it never flashes
     if (elapsed < 900) await new Promise((res) => setTimeout(res, 900 - elapsed));
+    hasEditedRef.current = false;        // a freshly generated design — no edits yet
+    pendingFirstRenderRef.current = true; // consumed by the first_render effect below
     setDesign(next);
     setGenerating(false);
     setLang('plain');
     setStep('design');
+    track('generate_result', { outcome: fromAi ? 'ai' : 'preset_fallback', latency_ms: Math.round(performance.now() - submitStartRef.current) });
   };
   const restart = () => {
     setStep('describe');
@@ -133,7 +166,15 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   };
 
   // Every edit funnels through a coat.js mutator — one code path, immutable.
-  const apply = (fn, ...args) => setDesign((d) => fn(d, ...args));
+  // `part`/`control` drive design_edited (task-7 brief §2) — centralized
+  // here so every call-site below stays a plain `apply(fn, part, control,
+  // ...args)` one-liner instead of a separate track() call each.
+  const apply = (fn, part, control, ...args) => {
+    setDesign((d) => fn(d, ...args));
+    const isFirstEdit = !hasEditedRef.current;
+    hasEditedRef.current = true;
+    track('design_edited', { part, control, is_first_edit: isFirstEdit });
+  };
 
   const openDownload = (surface) => {
     if (!design) return;
@@ -144,6 +185,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const copyBlazon = () => {
     navigator.clipboard?.writeText(blazon(design, 'formal')).catch(() => {});
     setCopied(true);
+    track('blazon_copied');
     setTimeout(() => setCopied(false), 1600);
   };
 
@@ -165,6 +207,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
         try {
           const coat = await decodeCoat(hashPayload);
           if (cancelled) return;
+          hasEditedRef.current = false; // a freshly loaded design — no edits yet
           setDesign(coat);
           setLang('plain');
           setStep('design');
@@ -177,6 +220,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
         const envelope = raw ? JSON.parse(raw) : null;
         if (envelope && envelope.v === 1 && envelope.coat) {
           if (cancelled) return;
+          hasEditedRef.current = false; // a freshly loaded design — no edits yet
           setDesign(envelope.coat);
           setLang('plain');
           setStep('design');
@@ -204,6 +248,17 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     setAutoGenPending(false);
     generate();
   }, [autoGenPending]);
+
+  // first_render — once per generation, when the design step actually paints
+  // the new design (useEffect runs after commit/paint, not before). The
+  // pendingFirstRenderRef guard is what makes this "once per generation" and
+  // not "on every subsequent edit" — apply() also changes `design`, but only
+  // generate() sets the flag this effect consumes.
+  useEffect(() => {
+    if (!pendingFirstRenderRef.current || !design) return;
+    pendingFirstRenderRef.current = false;
+    track('first_render', { ms_since_submit: Math.round(performance.now() - submitStartRef.current) });
+  }, [design]);
 
   // Debounced hash + autosave write, ~400ms after the design settles. Always
   // replaceState — never pushState per edit (no history spam).
@@ -245,6 +300,22 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const rationale = { fontSize: 13, color: C.muted, lineHeight: 1.5, margin: '0 0 13px' };
   const value = { fontFamily: F.serif, fontStyle: 'italic', fontSize: 16, color: C.cream };
   const pillRow = { display: 'flex', gap: 7, flexWrap: 'wrap', marginBottom: 13 };
+
+  // Charge search + charge_search_used (task-7 brief §2). A "session" is
+  // scoped to the current (non-empty) chargeQuery; searchPickedRef tracks
+  // whether it already reported a pick, so closing the picker afterwards
+  // doesn't double-report the same session as an abandon.
+  const searchHits = (q) => catalogKeys.filter((k) => k.includes(q.trim().toLowerCase()));
+  const pickFromSearch = (k) => {
+    searchPickedRef.current = true;
+    track('charge_search_used', { query_len: chargeQuery.trim().length, hits: searchHits(chargeQuery).length, picked: true });
+    apply(setCharge, 'symbol', 'search', k);
+  };
+  const endChargeSearch = () => {
+    const q = chargeQuery.trim();
+    if (!q || searchPickedRef.current) return; // no query typed, or already reported at pick time
+    track('charge_search_used', { query_len: q.length, hits: searchHits(q).length, picked: false });
+  };
 
   const Swatches = ({ names, active, onPick }) => (
     <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
@@ -329,14 +400,18 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
               <p style={{ fontSize: 14.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 22px' }}>A name, a place, what they loved, what they were like. The more human, the better the arms — we do the rest.</p>
               <textarea
                 value={desc}
-                onChange={(e) => { setDesc(e.target.value); setSelectedPreset(null); }}
+                onChange={(e) => {
+                  if (!describeStartedRef.current) { describeStartedRef.current = true; track('describe_started'); }
+                  setDesc(e.target.value);
+                  setSelectedPreset(null);
+                }}
                 placeholder="My grandmother was from the Highlands of Scotland. She loved astronomy and the night sky, and she was the steady one who held the family together…"
                 style={{ width: '100%', minHeight: 150, background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 10, padding: 16, color: '#ECE6D8', fontSize: 15, lineHeight: 1.55, resize: 'vertical', fontFamily: 'inherit' }}
               />
               <div style={{ fontSize: 12, color: 'rgba(236,230,216,.5)', margin: '16px 0 9px', letterSpacing: '.5px' }}>OR TRY ONE OF THESE</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {PRESETS.map((p, i) => (
-                  <button key={i} onClick={() => { setDesc(p.desc); setSelectedPreset(i); }} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
+                  <button key={i} onClick={() => { setDesc(p.desc); setSelectedPreset(i); track('preset_selected', { index: i }); }} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
                 ))}
               </div>
               <Turnstile ref={turnstileRef} onToken={setToken} />
@@ -377,17 +452,17 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
 
                 {!divided ? (
                   <>
-                    <Swatches names={TINCTURE_ORDER} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, t)} />
+                    <Swatches names={TINCTURE_ORDER} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, 'field', 'swatch', t)} />
                     <div style={{ marginTop: 13 }}>
                       <Disclosure label="More colours — furs">
-                        <Swatches names={FUR_STAIN} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, t)} />
+                        <Swatches names={FUR_STAIN} active={fieldTincture(design)} onPick={(t) => apply(setFieldTincture, 'field', 'swatch', t)} />
                       </Disclosure>
                     </div>
                     <div style={{ marginTop: 11 }}>
                       <Disclosure label="Divide the field">
                         <div style={pillRow}>
                           {DIVISION_ORDER.map((k) => (
-                            <Pill key={k} active={false} onClick={() => apply(setDivision, k)}>{cap(k)}</Pill>
+                            <Pill key={k} active={false} onClick={() => apply(setDivision, 'division', 'pill', k)}>{cap(k)}</Pill>
                           ))}
                         </div>
                       </Disclosure>
@@ -397,19 +472,19 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                   <>
                     <div style={pillRow}>
                       {DIVISION_ORDER.map((k) => (
-                        <Pill key={k} active={k === div.type} onClick={() => apply(setDivision, k)}>{cap(k)}</Pill>
+                        <Pill key={k} active={k === div.type} onClick={() => apply(setDivision, 'division', 'pill', k)}>{cap(k)}</Pill>
                       ))}
-                      <Pill active={false} onClick={() => apply(clearDivision)}>Plain field</Pill>
+                      <Pill active={false} onClick={() => apply(clearDivision, 'division', 'pill')}>Plain field</Pill>
                     </div>
                     <SubLabel>First colour</SubLabel>
-                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[0]} onPick={(t) => apply(setDivisionPart, 0, t)} />
+                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[0]} onPick={(t) => apply(setDivisionPart, 'division', 'swatch', 0, t)} />
                     <SubLabel style={{ marginTop: 12 }}>Second colour</SubLabel>
-                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[1]} onPick={(t) => apply(setDivisionPart, 1, t)} />
+                    <Swatches names={TINCTURE_ORDER} active={div.tinctures[1]} onPick={(t) => apply(setDivisionPart, 'division', 'swatch', 1, t)} />
                     <div style={{ marginTop: 13 }}>
                       <Disclosure label="Edge style">
                         <div style={{ ...pillRow, marginBottom: 0 }}>
                           {LINE_ORDER.map((k) => (
-                            <Pill key={k} active={(div.line || 'straight') === k} onClick={() => apply(setDivisionLine, k)}>{cap(k)}</Pill>
+                            <Pill key={k} active={(div.line || 'straight') === k} onClick={() => apply(setDivisionLine, 'division', 'pill', k)}>{cap(k)}</Pill>
                           ))}
                         </div>
                       </Disclosure>
@@ -427,15 +502,15 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 <p style={rationale}>{design.rationale?.ordinary}</p>
                 <div style={pillRow}>
                   {ORDINARY_ORDER.map((k) => (
-                    <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, k)}>{cap(k)}</Pill>
+                    <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, 'structure', 'pill', k)}>{cap(k)}</Pill>
                   ))}
                 </div>
                 <Disclosure label="More structures">
                   <div style={pillRow}>
                     {MORE_STRUCTURES.map((k) => (
-                      <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, k)}>{cap(k)}</Pill>
+                      <Pill key={k} active={!!struct && struct.object.key === k} onClick={() => apply(setOrdinary, 'structure', 'pill', k)}>{cap(k)}</Pill>
                     ))}
-                    <Pill active={!struct} onClick={() => apply(clearOrdinary)}>None</Pill>
+                    <Pill active={!struct} onClick={() => apply(clearOrdinary, 'structure', 'pill')}>None</Pill>
                   </div>
                 </Disclosure>
                 {struct && (
@@ -444,13 +519,13 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                       <Disclosure label="Edge style">
                         <div style={{ ...pillRow, marginBottom: 0 }}>
                           {LINE_ORDER.map((k) => (
-                            <Pill key={k} active={(struct.object.line || 'straight') === k} onClick={() => apply(setOrdinaryLine, k)}>{cap(k)}</Pill>
+                            <Pill key={k} active={(struct.object.line || 'straight') === k} onClick={() => apply(setOrdinaryLine, 'structure', 'pill', k)}>{cap(k)}</Pill>
                           ))}
                         </div>
                       </Disclosure>
                     </div>
                     <SubLabel>Its colour</SubLabel>
-                    <Swatches names={TINCTURE_ORDER} active={struct.tincture} onPick={(t) => apply(setOrdinaryTincture, t)} />
+                    <Swatches names={TINCTURE_ORDER} active={struct.tincture} onPick={(t) => apply(setOrdinaryTincture, 'structure', 'swatch', t)} />
                   </>
                 )}
               </div>
@@ -464,23 +539,26 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 <p style={rationale}>{design.rationale?.charges}</p>
                 <div style={pillRow}>
                   {CHARGE_ORDER.map((k) => (
-                    <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                    <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, 'symbol', 'pill', k)}>{CHARGES[k].label}</Pill>
                   ))}
                 </div>
-                <Disclosure label={`More symbols — search ${catalogKeys.length.toLocaleString()}`}>
+                <Disclosure
+                  label={`More symbols — search ${catalogKeys.length.toLocaleString()}`}
+                  onToggle={(open) => { if (!open) endChargeSearch(); }}
+                >
                   <input
                     value={chargeQuery}
-                    onChange={(e) => setChargeQuery(e.target.value)}
+                    onChange={(e) => { searchPickedRef.current = false; setChargeQuery(e.target.value); }}
                     placeholder="Search charges — lion, ship, oak, sun, harp…"
                     style={{ width: '100%', background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 8, padding: '9px 12px', color: '#ECE6D8', fontSize: 13.5, fontFamily: 'inherit', marginBottom: 10 }}
                   />
                   {chargeQuery.trim() ? (() => {
-                    const q = chargeQuery.trim().toLowerCase();
-                    const hits = catalogKeys.filter((k) => k.includes(q)).slice(0, 60);
-                    return hits.length ? (
+                    const allHits = searchHits(chargeQuery);
+                    const shown = allHits.slice(0, 60);
+                    return shown.length ? (
                       <div style={{ ...pillRow, marginBottom: 0, maxHeight: 240, overflowY: 'auto' }}>
-                        {hits.map((k) => (
-                          <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{humanize(k)}</Pill>
+                        {shown.map((k) => (
+                          <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => pickFromSearch(k)}>{humanize(k)}</Pill>
                         ))}
                       </div>
                     ) : <SubLabel>No charges match “{chargeQuery}”.</SubLabel>;
@@ -490,13 +568,13 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                         <SubLabel style={{ marginBottom: 6, textTransform: 'capitalize' }}>{catName}</SubLabel>
                         <div style={{ ...pillRow, marginBottom: 0 }}>
                           {keys.map((k) => (
-                            <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, k)}>{CHARGES[k].label}</Pill>
+                            <Pill key={k} active={!!chg && chg.object.key === k} onClick={() => apply(setCharge, 'symbol', 'pill', k)}>{CHARGES[k].label}</Pill>
                           ))}
                         </div>
                       </div>
                     ))
                   )}
-                  <div style={{ marginTop: 12 }}><Pill active={!chg} onClick={() => apply(clearCharge)}>None</Pill></div>
+                  <div style={{ marginTop: 12 }}><Pill active={!chg} onClick={() => apply(clearCharge, 'symbol', 'pill')}>None</Pill></div>
                 </Disclosure>
 
                 {chg && (
@@ -506,7 +584,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                         <SubLabel>Posture</SubLabel>
                         <div style={pillRow}>
                           {validAttitudesFor(chg.object.key).map((a) => (
-                            <Pill key={a} active={chg.object.attitude === a} onClick={() => apply(setChargeAttitude, a)} title={ATTITUDES[a]?.plain}>{a}</Pill>
+                            <Pill key={a} active={chg.object.attitude === a} onClick={() => apply(setChargeAttitude, 'symbol', 'pill', a)} title={ATTITUDES[a]?.plain}>{a}</Pill>
                           ))}
                         </div>
                       </div>
@@ -514,22 +592,22 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '6px 0 13px' }}>
                       <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)' }}>How many</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#16273E', borderRadius: 8, padding: '5px 6px' }}>
-                        <button onClick={() => apply(setChargeNumber, (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
+                        <button onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
                         <span style={{ fontSize: 15, minWidth: 14, textAlign: 'center', fontWeight: 600 }}>{chg.number}</span>
-                        <button onClick={() => apply(setChargeNumber, (chg.number || 1) + 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
+                        <button onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) + 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
                       </div>
                     </div>
                     {(chg.number || 1) > 1 && (
                       <Disclosure label="Arrangement">
                         <div style={{ ...pillRow, marginBottom: 0 }}>
                           {ARRANGEMENTS.map((a) => (
-                            <Pill key={a} active={chg.arrangement === a} onClick={() => apply(setArrangement, chg.arrangement === a ? null : a)}>{a}</Pill>
+                            <Pill key={a} active={chg.arrangement === a} onClick={() => apply(setArrangement, 'symbol', 'pill', chg.arrangement === a ? null : a)}>{a}</Pill>
                           ))}
                         </div>
                       </Disclosure>
                     )}
                     <SubLabel style={{ marginTop: 13 }}>Its colour</SubLabel>
-                    <Swatches names={TINCTURE_ORDER} active={chg.tincture} onPick={(t) => apply(setChargeTincture, t)} />
+                    <Swatches names={TINCTURE_ORDER} active={chg.tincture} onPick={(t) => apply(setChargeTincture, 'symbol', 'swatch', t)} />
                   </>
                 )}
               </div>
@@ -539,7 +617,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 <div style={{ ...cardTag, marginBottom: 11 }}>THE MOTTO</div>
                 <input
                   value={design.motto || ''}
-                  onChange={(e) => apply(setMotto, e.target.value)}
+                  onChange={(e) => apply(setMotto, 'motto', 'text', e.target.value)}
                   placeholder="A few words they lived by…"
                   style={{ width: '100%', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(201,162,75,.3)', padding: '6px 2px', color: '#ECE6D8', fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19 }}
                 />
@@ -562,7 +640,7 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
       <div style={{ flex: 'none', background: '#0A0D14', borderTop: '1.5px solid #C9A24B', padding: isMobile ? '14px 16px' : '16px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
           <span title="The blazon is the official written description of your arms — every coat of arms has one." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif", flex: 'none' }}>i</span>
-          <LangToggle value={lang} onFormal={() => setLang('formal')} onPlain={() => setLang('plain')} plainLabel="Plain English" />
+          <LangToggle value={lang} onFormal={() => { setLang('formal'); track('blazon_lang_toggled'); }} onPlain={() => { setLang('plain'); track('blazon_lang_toggled'); }} plainLabel="Plain English" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           {design

@@ -75,12 +75,13 @@ export function SubLabel({ children, style }) {
 // A "more…" disclosure: a labelled toggle that reveals its children on demand.
 // The one place progressive disclosure is implemented — reused by every card so
 // depth is reached in context, never via a mode switch.
-export function Disclosure({ label, openLabel, children, defaultOpen = false }) {
+export function Disclosure({ label, openLabel, children, defaultOpen = false, onToggle }) {
   const [open, setOpen] = useState(defaultOpen);
+  const toggle = () => setOpen((o) => { const next = !o; onToggle?.(next); return next; });
   return (
     <div>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         style={{
           background: 'none', border: 'none', color: 'rgba(201,162,75,.85)', fontSize: 12,
           cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6,

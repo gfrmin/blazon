@@ -56,6 +56,10 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
       // Export is code-split (pulls in react-dom/server) — load it on click only.
       const m = await import('../export.js');
       await m.downloadPNG(design);
+      // Reset in-flight state ourselves before closing — self-consistent
+      // regardless of whether the parent's reopen-effect also resets it.
+      inFlight.current = false;
+      setDownloading(false);
       onClose();
     } catch {
       // svgToPNG / the chunk fetch can reject (toBlob failure, SVG image load
@@ -106,7 +110,7 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
             {downloading ? 'Downloading…' : 'Download PNG'}
           </HoverBtn>
           {downloadError && (
-            <p role="alert" style={{ fontSize: 12.5, color: '#F0CFCF', lineHeight: 1.4, margin: '10px 0 0' }}>That didn't download — try once more.</p>
+            <p role="alert" style={{ fontSize: 12.5, color: '#F0CFCF', lineHeight: 1.4, margin: '10px 0 0' }}>That didn’t download — try once more.</p>
           )}
         </div>
 

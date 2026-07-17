@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Shield from './Shield.jsx';
 import CreditsLink from './Credits.jsx';
 import { HoverBtn, LangToggle, Lift } from './ui.jsx';
@@ -11,6 +11,7 @@ import {
 } from './heraldry.js';
 import { fetchCharge } from './charges/recolor.js';
 import { artFile } from './charges/manifest.js';
+import { track } from './analytics.js';
 
 const LOGO = (
   <svg width="28" height="32" viewBox="0 0 30 34">
@@ -49,6 +50,16 @@ export default function Landing({ onOpenStudio }) {
   const isTablet = useMediaQuery('(max-width: 1000px)');
   const reduceMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
 
+  // Ref-guarded (not a bare effect-on-mount) so StrictMode's dev-only
+  // double-invoke of mount effects can't double-fire this "once" event —
+  // the ref survives that synthetic remount even though the effect re-runs.
+  const landingViewedRef = useRef(false);
+  useEffect(() => {
+    if (landingViewedRef.current) return;
+    landingViewedRef.current = true;
+    track('landing_viewed');
+  }, []);
+
   // ── The reel: auto-advance through scenes until the visitor takes control ──
   const reelActive = !driving && !paused && !reduceMotion;
   useEffect(() => {
@@ -73,11 +84,12 @@ export default function Landing({ onOpenStudio }) {
   const scene = REEL[sceneIdx];
   const takeControl = () => { setDriving(true); setPaused(true); };
   const watchExamples = () => { setDriving(false); setPaused(false); };
-  const goToScene = (i) => { setSceneIdx(i); setPaused(true); setDriving(false); };
+  const goToScene = (i) => { setSceneIdx(i); setPaused(true); setDriving(false); track('hero_interacted', { control: 'reel_dot' }); };
 
   // ── Hero cycling (always tincture-rule valid via pickContrast) ──
   const cycleField = () => {
     takeControl();
+    track('hero_interacted', { control: 'field' });
     setHero((h) => {
       const next = HERO_FIELDS[(HERO_FIELDS.indexOf(h.field) + 1) % HERO_FIELDS.length];
       const ord = pickContrast(next, null);
@@ -87,6 +99,7 @@ export default function Landing({ onOpenStudio }) {
   };
   const cycleOrdinary = () => {
     takeControl();
+    track('hero_interacted', { control: 'structure' });
     setHero((h) => {
       const nextOrd = ORDINARY_ORDER[(ORDINARY_ORDER.indexOf(h.ordinary) + 1) % ORDINARY_ORDER.length];
       const pool = contrastPool(h.field);
@@ -96,6 +109,7 @@ export default function Landing({ onOpenStudio }) {
   };
   const cycleSymbol = () => {
     takeControl();
+    track('hero_interacted', { control: 'symbol' });
     setHero((h) => {
       const cur = h.charges.length ? `${h.charges[0].type}-${h.charges[0].qty}` : 'none';
       const keys = HERO_SYMBOLS.map((x) => (x ? `${x.type}-${x.qty}` : 'none'));
@@ -106,6 +120,7 @@ export default function Landing({ onOpenStudio }) {
   };
   const surprise = () => {
     takeControl();
+    track('hero_interacted', { control: 'surprise' });
     const pick = (a) => a[Math.floor(Math.random() * a.length)];
     const field = pick(HERO_FIELDS);
     const ordinaryTincture = pickContrast(field, null);
@@ -149,7 +164,7 @@ export default function Landing({ onOpenStudio }) {
               <a href="#gallery" style={navLink}>Gallery</a>
               <a href="#pricing" style={navLink}>Pricing</a>
             </>}
-            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '11px 18px', fontSize: 14.5 }} hoverStyle={goldBtnHover}>Open the Studio</HoverBtn>
+            <HoverBtn onClick={() => onOpenStudio('nav')} style={{ ...goldBtn, padding: '11px 18px', fontSize: 14.5 }} hoverStyle={goldBtnHover}>Open the Studio</HoverBtn>
           </nav>
         </div>
       </header>
@@ -163,7 +178,7 @@ export default function Landing({ onOpenStudio }) {
           </h1>
           <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms that belongs to them alone.</p>
           <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
+            <HoverBtn onClick={() => onOpenStudio('hero_cta')} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
             <a href="#how" style={{ color: C.cream, textDecoration: 'none', fontSize: 15, paddingBottom: 3, borderBottom: `1px solid ${C.lineHi}` }}>See how it works</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.muted2, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
@@ -347,7 +362,7 @@ export default function Landing({ onOpenStudio }) {
             <h2 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 10px', color: C.parchInk }}>Give someone a coat of arms.</h2>
             <p style={{ fontSize: 16, color: C.parchInk2, margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A coat of arms made for one person — printed, framed, and posted to their door. The most personal gift you can design in ten minutes.</p>
           </div>
-          <HoverBtn onClick={onOpenStudio} style={{ ...goldBtn, padding: '16px 32px', fontSize: 16, whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto', boxShadow: '0 8px 22px rgba(120,90,30,.3)' }} hoverStyle={goldBtnHover}>Design a gift</HoverBtn>
+          <HoverBtn onClick={() => onOpenStudio('gift_banner')} style={{ ...goldBtn, padding: '16px 32px', fontSize: 16, whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto', boxShadow: '0 8px 22px rgba(120,90,30,.3)' }} hoverStyle={goldBtnHover}>Design a gift</HoverBtn>
         </div>
       </section>
 
