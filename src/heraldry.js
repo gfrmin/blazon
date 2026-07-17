@@ -24,7 +24,10 @@ export {
   CHARGES, CHARGE_ORDER, ATTITUDES,
   categoryOf, validAttitudesFor, defaultAttitudeFor, attitudeValid, chargeNoun, chargePlain,
 } from './model/charges.js';
-export { HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal } from './model/achievement.js';
+export {
+  HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal,
+  hasAchievement, liveryTinctures, withDefaultAchievement, stripAchievement,
+} from './model/achievement.js';
 export * from './model/coat.js'; // selectors + immutable mutators (single home for AST edits)
 export { blazon } from './model/blazon.js';
 export { computeWarn } from './model/validate.js';
