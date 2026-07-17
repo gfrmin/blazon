@@ -14,7 +14,7 @@ import { tinctureFormal, tincturePlain } from './tinctures.js';
 import { DIVISIONS, isRepeatingDivision } from './field.js';
 import { ordinaryNoun, isOrdinary, isSubordinary } from './ordinaries.js';
 import { chargeNoun, chargePlain, ATTITUDES } from './charges.js';
-import { normalize } from './achievement.js';
+import { normalize, HELMETS } from './achievement.js';
 
 const NUM = ['', 'a', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 const ORD = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
@@ -172,6 +172,134 @@ function marshalledPlain(m) {
   return parts.join(' and ');
 }
 
+// ── Achievement (crest/helm/mantling/supporters/compartment) ──────────────
+// Additive: appended AFTER the escutcheon sentence as its own labelled
+// clauses (formal) or short sentences (plain). Never touches coatFormal/
+// coatPlain, so a coat with no `achievement` member serializes exactly as it
+// did before this existed (the regression lock). The motto is deliberately
+// never read here — it is not part of a blazon.
+
+// Grant-of-arms convention: dexter/sinister are the BEARER's right/left (the
+// standard heraldic meaning of the words themselves), so the formal clause
+// uses them unmodified. The plain-English clause instead describes the
+// VIEWER's perspective — what a non-herald actually sees facing the shield —
+// which is the mirror image: the dexter supporter (bearer's right) is on the
+// viewer's LEFT, and the sinister supporter (bearer's left) is on the
+// viewer's RIGHT.
+
+function crestFormal(a) {
+  if (!a.crest) return null;
+  const body = groupFormal(a.crest, true);
+  if (a.torse) {
+    const [metal, colour] = a.torse.tinctures;
+    return `Crest: on a torse ${tinctureFormal(metal)} and ${tinctureFormal(colour)}, ${body}`;
+  }
+  return `Crest: ${body}`;
+}
+
+function helmFormal(a) {
+  if (!a.helm) return null;
+  const style = a.helm.style || 'esquire';
+  if (style === 'esquire') return null; // the default rank is noise, not blazoned
+  const h = HELMETS[style];
+  return h ? `Helm: ${h.formal}` : null;
+}
+
+function mantlingFormal(a) {
+  if (!a.mantling) return null;
+  const [colour, metal] = a.mantling.tinctures;
+  return `Mantling: ${tinctureFormal(colour)} doubled ${tinctureFormal(metal)}`;
+}
+
+function supporterFormal(s) {
+  return groupFormal({ number: 1, tincture: s.tincture, object: s.object }, true);
+}
+
+function supportersFormal(supp) {
+  if (supp.sinister) {
+    return `Supporters: on the dexter ${supporterFormal(supp.dexter)}, and on the sinister ${supporterFormal(supp.sinister)}`;
+  }
+  const pair = groupFormal({ number: 2, tincture: supp.dexter.tincture, object: supp.dexter.object }, true);
+  return `Supporters: ${pair}`;
+}
+
+function compartmentFormal(c) {
+  const type = c.type ? `a ${c.type}` : 'a compartment';
+  const tincture = c.tincture ? ` ${tinctureFormal(c.tincture)}` : '';
+  return `Compartment: ${type}${tincture}`;
+}
+
+function achievementFormalClauses(a) {
+  if (!a) return [];
+  return [
+    crestFormal(a),
+    helmFormal(a),
+    mantlingFormal(a),
+    a.supporters ? supportersFormal(a.supporters) : null,
+    a.compartment ? compartmentFormal(a.compartment) : null,
+  ].filter(Boolean);
+}
+
+function crestPlain(a) {
+  if (!a.crest) return null;
+  const body = groupPlain(a.crest);
+  const wreath = a.torse
+    ? ` on a twisted wreath of ${tincturePlain(a.torse.tinctures[0])} and ${tincturePlain(a.torse.tinctures[1])}`
+    : '';
+  return `Above the shield, ${body} stands${wreath}.`;
+}
+
+function helmPlain(a) {
+  if (!a.helm) return null;
+  const style = a.helm.style || 'esquire';
+  if (style === 'esquire') return null;
+  const h = HELMETS[style];
+  if (!h) return null;
+  const rank = h.formal.replace(/\s*helmet$/, ''); // "a knight's helmet" → "a knight's"
+  return `The helm is ${rank}.`;
+}
+
+function mantlingPlain(a) {
+  if (!a.mantling) return null;
+  const [colour, metal] = a.mantling.tinctures;
+  return `The mantling — the cloth behind the shield — is ${tincturePlain(colour)} lined with ${tincturePlain(metal)}.`;
+}
+
+function supporterPhrasePlain(s, plural) {
+  const colour = tincturePlain(s.tincture);
+  const obj = s.object;
+  const noun = isOrdinaryLike(obj) ? ordinaryNoun(obj.key, { plural }) : chargePlain(obj.key, plural);
+  const lead = plural ? 'two' : aOrAn(colour);
+  return `${lead} ${colour} ${noun}`;
+}
+
+function supportersPlain(supp) {
+  if (supp.sinister) {
+    const dexter = supporterPhrasePlain(supp.dexter, false);
+    const sinister = supporterPhrasePlain(supp.sinister, false);
+    return `${capWord(dexter)} holds the shield on the left, and ${sinister} on the right.`;
+  }
+  const pair = supporterPhrasePlain(supp.dexter, true);
+  return `${capWord(pair)} hold the shield up.`;
+}
+
+function compartmentPlain(c) {
+  const type = c.type || 'ground';
+  const tincture = c.tincture ? ` of ${tincturePlain(c.tincture)}` : '';
+  return `The shield stands on a ${type}${tincture}.`;
+}
+
+function achievementPlainClauses(a) {
+  if (!a) return [];
+  return [
+    crestPlain(a),
+    helmPlain(a),
+    mantlingPlain(a),
+    a.supporters ? supportersPlain(a.supporters) : null,
+    a.compartment ? compartmentPlain(a.compartment) : null,
+  ].filter(Boolean);
+}
+
 /**
  * Derive the blazon of a design.
  * @param {import('./types.js').Coat|object} d  A Coat AST or the legacy flat object.
@@ -181,5 +309,12 @@ function marshalledPlain(m) {
 export function blazon(d, lang) {
   const coat = normalize(d);
   if (!coat) return '';
-  return lang === 'formal' ? capFirst(coatFormal(coat)) : coatPlain(coat);
+  if (lang === 'formal') {
+    const escutcheon = coatFormal(coat);
+    const clauses = achievementFormalClauses(coat.achievement);
+    return capFirst(clauses.length ? `${escutcheon}. ${clauses.join('. ')}.` : escutcheon);
+  }
+  const escutcheon = coatPlain(coat);
+  const clauses = achievementPlainClauses(coat.achievement);
+  return clauses.length ? `${escutcheon} ${clauses.join(' ')}` : escutcheon;
 }
