@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Shield from './Shield.jsx';
+import Achievement from './Achievement.jsx';
 import CreditsLink from './Credits.jsx';
 import { HoverBtn, LangToggle, Lift } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
@@ -15,6 +16,18 @@ import { artFile } from './charges/manifest.js';
 import { track } from './analytics.js';
 import { navigate } from './router.js';
 import { listDesigns } from './library.js';
+import { PRICING_TIERS } from './pricing.js';
+import { heroStudioUrl } from './hero.js';
+
+// Landing's own copy of the sessionStorage handoff key used to carry the
+// `studio_opened{source}` attribution one hop ahead of navigate() (App.jsx's
+// `openStudio`, Studio.jsx's own read, ShareView.jsx's own write — every
+// caller keeps its own literal copy of this same string, commented "must
+// match", rather than a shared export; see ShareView.jsx). The hero inline
+// input needs this directly (not via the `onOpenStudio` prop) because it's
+// the one CTA that also carries a `?desc=` query — `onOpenStudio(source)`
+// only ever does a bare `navigate('/studio')`.
+const STUDIO_SOURCE_KEY = 'blazon:studio_source';
 
 const LOGO = (
   <svg width="28" height="32" viewBox="0 0 30 34">
@@ -31,16 +44,6 @@ const GALLERY = [
   { title: 'Família Vendral',     design: { field: 'Or',    ordinary: null,      charges: [{ type: 'tower', tincture: 'Sable',  qty: 1 }] } },
 ];
 
-// Transaction-led pricing (the product is a one-time, emotional purchase, not a
-// subscription). Free to create; pay once for the file or the framed print.
-// The developer API lives in a quiet footnote, off the consumer grid.
-const PRICING = [
-  { tier: 'Create',  price: 'Free',  body: 'Design as many coats of arms as you like, on screen. Share an image and read the blazon.' },
-  { tier: 'Digital', price: <>$19<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> once</small></>, body: 'Your finished design, watermark-free — a high-resolution image, a print file, and a certificate ready to print.' },
-  { tier: 'Printed & Framed', price: <>$49<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> +</small></>, body: 'Printed large on heavy art paper, framed, and posted to your door. Unframed from $29.', highlight: true },
-  { tier: 'Membership', price: <>$9<small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> /mo</small></>, body: 'For frequent makers — unlimited downloads, the full symbol library, and every design you make, saved.' },
-];
-
 export default function Landing({ onOpenStudio }) {
   const [sceneIdx, setSceneIdx] = useState(0);
   const [hero, setHero] = useState(REEL[0].design);
@@ -48,6 +51,8 @@ export default function Landing({ onOpenStudio }) {
   const [driving, setDriving] = useState(false); // user took the wheel (edit mode)
   const [paused, setPaused] = useState(false);    // auto-advance halted (still reel view)
   const [hoverPart, setHoverPart] = useState(null);
+  const [heroDesc, setHeroDesc] = useState(''); // hero inline describe input (task-20 brief §3)
+  const [printNoted, setPrintNoted] = useState(false); // the coming-soon print card's demand-signal tap
 
   const isMobile = useMediaQuery('(max-width: 720px)');
   const isTablet = useMediaQuery('(max-width: 1000px)');
@@ -142,6 +147,51 @@ export default function Landing({ onOpenStudio }) {
     ? CHARGES[hero.charges[0].type].label + (hero.charges[0].qty > 1 ? ` ×${hero.charges[0].qty}` : '')
     : 'None';
 
+  // ── Hero inline describe input (task-20 brief §3, the activation lever) ──
+  // Submits straight into Studio's `?desc=` arrival path (heroStudioUrl,
+  // pure/tested in src/hero.js) so generation is already in flight the
+  // instant Studio mounts — the exact path a preset chip's textarea submit
+  // already exercises (Task 4/15), just entered from the hero instead of the
+  // Studio describe step. An empty submit falls back to the plain "open a
+  // blank Studio" behaviour the gold CTA always had (onOpenStudio('hero_cta')),
+  // so this is additive, not a replacement of that path.
+  const submitHeroDescribe = (e) => {
+    e.preventDefault();
+    const text = heroDesc.trim();
+    if (!text) { onOpenStudio('hero_cta'); return; }
+    try { sessionStorage.setItem(STUDIO_SOURCE_KEY, 'hero_inline'); } catch { /* storage unavailable — Studio defaults to 'direct' */ }
+    navigate(heroStudioUrl(text));
+  };
+
+  // The "coming soon" print card's ONLY affordance — a demand signal, not a
+  // purchase (task-20 brief §1). Same event, same no-props shape,
+  // DownloadDialog's own coming-soon footnote already fires
+  // (src/components/DownloadDialog.jsx's `noteInterest`).
+  const notePrintInterest = () => {
+    if (printNoted) return;
+    track('print_interest_clicked');
+    setPrintNoted(true);
+  };
+
+  // ── Reel achievements — full <Achievement> compositions, precomputed ONCE
+  // per REEL scene (task-20 brief §4, option (a) chosen — see task-20-report
+  // for the bundle-size justification: Achievement.jsx is ALREADY in the
+  // entry bundle today, pulled in by Studio.jsx/ShareView.jsx, which App.jsx
+  // imports statically — this app has no route-level code-splitting, so
+  // rendering it here adds zero bytes to what already ships). `useMemo` with
+  // an empty dep array — not per-scene-render — is what makes this "cheap":
+  // auto-advance (the setInterval in the effect above) just swaps an array
+  // index; it never re-runs the (moderately expensive: several recoloured
+  // SVG layers) achievement composition. These are the passive reel-viewing
+  // display only — NOT interactive (no tap-to-cycle) — the moment the
+  // visitor taps FIELD/STRUCTURE/SYMBOL/Surprise below, `takeControl()`
+  // flips `driving` true and the display swaps to the exact same live
+  // interactive <Shield> this hero has always used for editing, unchanged.
+  const reelAchievements = useMemo(
+    () => REEL.map((s, i) => <Achievement key={i} design={s.design} width="100%" />),
+    [],
+  );
+
   const PAD = isMobile ? 20 : 36;
   const sectionWrap = { maxWidth: 1180, margin: '0 auto', padding: `0 ${PAD}px` };
   const sec = { ...sectionWrap, padding: `60px ${PAD}px` };
@@ -187,8 +237,24 @@ export default function Landing({ onOpenStudio }) {
             <DropCap>W</DropCap>e still grant arms. You just describe the&nbsp;person.
           </h1>
           <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms that belongs to them alone.</p>
-          <div style={{ display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
-            <HoverBtn onClick={() => onOpenStudio('hero_cta')} style={{ ...goldBtn, padding: '15px 28px', fontSize: 16 }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
+          {/* Hero inline describe input (task-20 brief §3) — the highest-leverage
+              activation lever: type here, submit, and land in the Studio already
+              generating (heroStudioUrl → /studio?desc=..., Studio's existing
+              ?desc= arrival path, Task 4/15). aria-label stands in for a visible
+              <label> (a11y basics now; the fuller sweep is Task 21) so the input
+              still has a proper accessible name even though — like Studio's own
+              describe textarea — the visual cue is the placeholder. */}
+          <form onSubmit={submitHeroDescribe} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input
+              value={heroDesc}
+              onChange={(e) => setHeroDesc(e.target.value)}
+              aria-label="Describe someone, to design their coat of arms"
+              placeholder="A grandmother who spent her life by the sea…"
+              style={{ flex: '1 1 260px', minWidth: 220, background: C.panel2, border: `1px solid ${C.lineHi}`, borderRadius: 8, padding: '14px 16px', color: C.cream, fontSize: 15.5, fontFamily: F.sans }}
+            />
+            <HoverBtn type="submit" style={{ ...goldBtn, padding: '15px 28px', fontSize: 16, whiteSpace: 'nowrap' }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
+          </form>
+          <div style={{ marginTop: 14 }}>
             <a href="#how" style={{ color: C.cream, textDecoration: 'none', fontSize: 15, paddingBottom: 3, borderBottom: `1px solid ${C.lineHi}` }}>See how it works</a>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.muted2, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
@@ -216,19 +282,24 @@ export default function Landing({ onOpenStudio }) {
             )}
           </div>
 
-          {/* The interactive coat of arms — framed like a manuscript plate */}
+          {/* The coat of arms — framed like a manuscript plate. Reel view shows a
+              full precomputed achievement (task-20 brief §4); the moment the
+              visitor takes the wheel (taps a control below), this swaps to the
+              exact same live interactive shield editing has always used. */}
           <div style={{ position: 'relative', width: '100%', maxWidth: 392, padding: '22px 22px 14px', border: `1px solid ${C.line}`, borderRadius: 14, background: 'radial-gradient(circle at 50% 40%, rgba(201,162,75,.10), rgba(15,24,38,.5) 70%)' }}>
             <FrameCorners />
-            <Shield
-              design={hero}
-              interactive
-              autoHint={false}
-              hoverPart={hoverPart}
-              onHover={setHoverPart}
-              onField={cycleField}
-              onOrdinary={cycleOrdinary}
-              onCharge={cycleSymbol}
-            />
+            {driving ? (
+              <Shield
+                design={hero}
+                interactive
+                autoHint={false}
+                hoverPart={hoverPart}
+                onHover={setHoverPart}
+                onField={cycleField}
+                onOrdinary={cycleOrdinary}
+                onCharge={cycleSymbol}
+              />
+            ) : reelAchievements[sceneIdx]}
           </div>
 
           {/* The result: motto + the one-line reason (reel only) */}
@@ -339,24 +410,46 @@ export default function Landing({ onOpenStudio }) {
         </div>
       </section>
 
-      {/* Pricing — transaction-led */}
+      {/* Pricing — reconciled to what actually ships (task-20 brief §1): Free,
+          the $19 Files purchase (highlighted — the one buyable thing), and a
+          muted, non-buy "coming soon" print card whose only affordance is the
+          print_interest_clicked demand signal. No Membership tier, no API
+          footnote — neither is in MVP scope (Task 6 review). */}
       <section style={sec} id="pricing">
         <GildedRule />
         <h2 style={h2Style}>Pricing</h2>
-        <p style={{ textAlign: 'center', color: C.muted, fontSize: 16.5, lineHeight: 1.55, margin: '0 auto', maxWidth: '34em' }}>Design for free. Pay once — for the file or the framed print — only when you love what you’ve made.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : 'repeat(4,1fr)', gap: 18, marginTop: 44 }}>
-          {PRICING.map((p) => (
-            <Lift key={p.tier} style={{ background: p.highlight ? `linear-gradient(180deg, ${C.panel}, ${C.bg2})` : C.bg2, border: p.highlight ? `1.5px solid ${C.gold}` : `1px solid ${C.line}`, borderRadius: 14, padding: '28px 24px', position: 'relative' }}>
-              {p.highlight && <div style={{ position: 'absolute', top: -11, left: 24, background: C.gold, color: C.goldInk, fontSize: 10, fontWeight: 700, letterSpacing: '1px', padding: '4px 11px', borderRadius: 20 }}>THE GIFT</div>}
-              <div style={{ fontSize: 13.5, fontWeight: 600, color: p.highlight ? C.gold : C.muted }}>{p.tier}</div>
-              <div style={{ fontFamily: F.serif, fontSize: 38, fontWeight: 600, margin: '10px 0 16px' }}>{p.price}</div>
-              <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.55, margin: 0 }}>{p.body}</p>
-            </Lift>
-          ))}
+        <p style={{ textAlign: 'center', color: C.muted, fontSize: 16.5, lineHeight: 1.55, margin: '0 auto', maxWidth: '34em' }}>Design for free. Take the finished files for $19 when you love what you’ve made — the print edition is on its way.</p>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 18, marginTop: 44 }}>
+          {PRICING_TIERS.map((p) => {
+            const cardStyle = {
+              background: p.highlight ? `linear-gradient(180deg, ${C.panel}, ${C.bg2})` : C.bg2,
+              border: p.highlight ? `1.5px solid ${C.gold}` : `1px solid ${C.line}`,
+              borderRadius: 14, padding: '28px 24px', position: 'relative',
+              opacity: p.comingSoon ? 0.6 : 1,
+              width: '100%', textAlign: 'left', fontFamily: 'inherit',
+            };
+            return (
+              <Lift
+                key={p.id}
+                as={p.comingSoon ? 'button' : 'div'}
+                {...(p.comingSoon ? { type: 'button', onClick: notePrintInterest, disabled: printNoted } : {})}
+                style={{ ...cardStyle, cursor: p.comingSoon ? (printNoted ? 'default' : 'pointer') : 'default' }}
+              >
+                {p.highlight && <div style={{ position: 'absolute', top: -11, left: 24, background: C.gold, color: C.goldInk, fontSize: 10, fontWeight: 700, letterSpacing: '1px', padding: '4px 11px', borderRadius: 20 }}>OWN IT</div>}
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: p.highlight ? C.gold : C.muted }}>{p.tier}{p.comingSoon && ' · coming soon'}</div>
+                <div style={{ fontFamily: F.serif, fontSize: 38, fontWeight: 600, margin: '10px 0 16px' }}>
+                  {p.priceLabel}{p.priceSuffix && <small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> {p.priceSuffix}</small>}
+                </div>
+                <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.55, margin: 0 }}>{p.body}</p>
+                {p.comingSoon && (
+                  <div style={{ fontSize: 12, color: printNoted ? C.gold : C.muted2, marginTop: 14, textDecoration: printNoted ? 'none' : 'underline' }}>
+                    {printNoted ? 'Noted — we’ll let you know.' : 'Tap to say you’d buy this →'}
+                  </div>
+                )}
+              </Lift>
+            );
+          })}
         </div>
-        <p style={{ textAlign: 'center', color: C.muted2, fontSize: 13, marginTop: 24 }}>
-          Building something heraldic of your own? <a href="#" style={{ color: C.gold, textDecoration: 'none' }}>There’s an API — $29/mo →</a>
-        </p>
       </section>
 
       {/* Gift CTA — illuminated parchment banner */}
@@ -365,7 +458,7 @@ export default function Landing({ onOpenStudio }) {
           <ParchInset inset={10} />
           <div>
             <h2 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 30 : 40, margin: '0 0 10px', color: C.parchInk }}>Give someone a coat of arms.</h2>
-            <p style={{ fontSize: 16, color: C.parchInk2, margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A coat of arms made for one person — printed, framed, and posted to their door. The most personal gift you can design in ten minutes.</p>
+            <p style={{ fontSize: 16, color: C.parchInk2, margin: 0, maxWidth: '34em', lineHeight: 1.55 }}>A coat of arms made for one person — send them the link, or take the files and frame it yourself. The most personal gift you can design in ten minutes.</p>
           </div>
           <HoverBtn onClick={() => onOpenStudio('gift_banner')} style={{ ...goldBtn, padding: '16px 32px', fontSize: 16, whiteSpace: 'nowrap', width: isMobile ? '100%' : 'auto', boxShadow: '0 8px 22px rgba(120,90,30,.3)' }} hoverStyle={goldBtnHover}>Design a gift</HoverBtn>
         </div>
