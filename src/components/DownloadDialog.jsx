@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { C, F, goldBtn, goldBtnHover } from '../theme.js';
-import { HoverBtn } from '../ui.jsx';
+import { HoverBtn, trapTabKey } from '../ui.jsx';
 import { track } from '../analytics.js';
 import { encodeCoat, designHash } from '../share/codec.js';
 import { isUnlocked, CHECKOUT_PENDING_KEY } from '../unlock.js';
@@ -18,8 +18,9 @@ import { getDesign } from '../library.js';
 //     src/unlock.js) → the clean-file buttons directly, no CTA.
 //   - otherwise, configured → the live "$19 — own it" → Stripe Checkout CTA.
 //
-// Basic a11y only for now (a fuller audit is a later task): overlay click +
-// Esc close it, focus moves in on open and returns to the trigger on close,
+// A11y (task-21 sweep, verified against the paid/unlocked states M4 added):
+// overlay click + Esc close it, focus moves in on open and returns to the
+// trigger on close, Tab is trapped inside the panel (ui.jsx's trapTabKey),
 // role="dialog" + aria-modal + a labelled title.
 export default function DownloadDialog({ open, onClose, design, surface, currentId = null, editsCount = 0, hasAchievement = false }) {
   const panelRef = useRef(null);
@@ -61,7 +62,13 @@ export default function DownloadDialog({ open, onClose, design, surface, current
     }
     fetchCheckoutConfigured().then((c) => { if (!cancelled) setCheckoutConfigured(c); });
 
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // Esc closes; Tab/Shift+Tab is trapped inside the panel (task-21 a11y
+    // sweep — focus-move-in/focus-restore/Esc were already here, but nothing
+    // stopped Tab from walking out into the page behind the overlay).
+    const onKey = (e) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      trapTabKey(e, panelRef);
+    };
     document.addEventListener('keydown', onKey);
     const raf = requestAnimationFrame(() => panelRef.current?.focus());
 

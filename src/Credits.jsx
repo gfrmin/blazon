@@ -1,24 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { trapTabKey } from './ui.jsx';
 
 // Attribution surface (CC-BY-SA compliance): credits DrawShield + the Wikimedia
 // heraldic artists whose charge art we use. Full per-charge record lives in
 // ATTRIBUTION.md; this is the user-facing acknowledgement.
 export default function CreditsLink({ style }) {
   const [open, setOpen] = useState(false);
+  const panelRef = useRef(null);
+  const previouslyFocused = useRef(null);
   const link = {
     background: 'none', border: 'none', padding: 0, cursor: 'pointer',
     color: 'rgba(236,230,216,.6)', fontSize: 13, textDecoration: 'underline', fontFamily: 'inherit',
     ...style,
   };
+
+  // Modal a11y (task-21 sweep — this dialog had none: no role/aria-modal, no
+  // Esc, no focus management). Same shape as DownloadDialog's: focus moves
+  // in on open and returns to the trigger on close, Esc closes, Tab is
+  // trapped inside the panel.
+  useEffect(() => {
+    if (!open) return undefined;
+    previouslyFocused.current = document.activeElement;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { setOpen(false); return; }
+      trapTabKey(e, panelRef);
+    };
+    document.addEventListener('keydown', onKey);
+    const raf = requestAnimationFrame(() => panelRef.current?.focus());
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      cancelAnimationFrame(raf);
+      previouslyFocused.current?.focus?.();
+    };
+  }, [open]);
+
   return (
     <>
       <button onClick={() => setOpen(true)} style={link}>Artwork &amp; licences</button>
       {open && (
         <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(8,11,18,.72)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#0F1826', border: '1px solid rgba(201,162,75,.3)', borderRadius: 14, maxWidth: 540, width: '100%', padding: '26px 28px', boxShadow: '0 24px 60px rgba(0,0,0,.6)' }}>
+          <div
+            ref={panelRef}
+            tabIndex={-1}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="credits-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: '#0F1826', border: '1px solid rgba(201,162,75,.3)', borderRadius: 14, maxWidth: 540, width: '100%', padding: '26px 28px', boxShadow: '0 24px 60px rgba(0,0,0,.6)', outline: 'none' }}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-              <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 26, margin: 0 }}>Artwork &amp; licences</h2>
-              <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(236,230,216,.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+              <h2 id="credits-dialog-title" style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 26, margin: 0 }}>Artwork &amp; licences</h2>
+              <button onClick={() => setOpen(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: 'rgba(236,230,216,.6)', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
             </div>
             <p style={{ fontSize: 14, color: 'rgba(236,230,216,.78)', lineHeight: 1.65, margin: '0 0 14px' }}>
               The charge artwork — over <strong>2,000 heraldic charges</strong> — comes from{' '}

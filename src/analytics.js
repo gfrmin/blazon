@@ -258,7 +258,7 @@ export function _sanitizeExceptionList(list) {
 // src/Studio.jsx, src/Landing.jsx, src/components/DownloadDialog.jsx —
 // derived, not guessed; event names themselves need no allowlisting, only
 // their prop keys do):
-//   studio_opened{source} generate_submitted{desc_length,used_preset}
+//   studio_opened{source} generate_submitted{desc_length}
 //   generate_result{outcome,latency_ms} design_edited{part,control,is_first_edit}
 //   first_render{ms_since_submit} charge_search_used{query_len,hits,picked}
 //   preset_selected{index} hero_interacted{control} download_opened{surface}
@@ -283,8 +283,16 @@ export function _sanitizeExceptionList(list) {
 //   download_paid_file{format} (task-19 brief §6 — `value` is the FIXED
 //   price in whole currency units, always 19, never an arbitrary amount;
 //   `format` reuses the same enum as download_free/download_error above)
+//
+// `used_preset` was removed (task-21 cleanup): presets stopped touching
+// generate() back in Task 15 (a preset chip paints its design straight away
+// — see Studio.jsx's selectPreset — never through generate()'s
+// `track('generate_submitted', …)` call-site), so the prop had been
+// permanently `false` on every real event since. Dropped from
+// generate_submitted's payload and from this allowlist together, so a
+// dashboard reader is never misled by a field that can no longer vary.
 const OWN_EVENT_PROPS = [
-  'source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
+  'source', 'desc_length', 'outcome', 'latency_ms',
   'part', 'control', 'is_first_edit', 'ms_since_submit',
   'query_len', 'hits', 'picked', 'index', 'surface', 'format',
   'on', 'library_size', 'design_code', 'cta',
@@ -292,7 +300,9 @@ const OWN_EVENT_PROPS = [
 ];
 
 // (b) Our super-props — posthog.register()'d in _computeInitialSuperProps
-// below and in App.jsx's ShareArrival — persisted onto every future event:
+// below and in ShareView.jsx's markArrivedViaShare (the /a/ recipient page —
+// replaced App.jsx's old ShareArrival component in Task 18) — persisted onto
+// every future event:
 const SUPER_PROPS = ['has_library', 'designs_saved_count', 'has_purchased', 'arrived_via_share'];
 
 // (c) posthog-js-internal properties that are genuinely safe — sourced from

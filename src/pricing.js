@@ -45,7 +45,12 @@ export const PRICING_TIERS = [
     tier: 'Printed & framed',
     priceLabel: 'from $49',
     priceSuffix: null,
-    body: 'Printed large on heavy art paper and framed, delivered to your door.',
+    // Future/conditional tense, deliberately (task-21 Minor, folded in from
+    // Task 20's review) — the "· coming soon" header alone wasn't enough of
+    // a signal; the old present-tense "Printed large on heavy art paper and
+    // framed, delivered to your door." read as a live, active service to a
+    // skimmer even sitting right next to that label.
+    body: 'The plan: printed large on heavy art paper, framed, and delivered to your door.',
     highlight: false,
     comingSoon: true,
   },

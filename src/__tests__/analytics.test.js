@@ -714,12 +714,29 @@ test('SAFE_PROPS: never contains a raw URL/pathname/referrer key (those are rewr
 });
 
 test('SAFE_PROPS: contains every real own-event prop key used by track() call-sites in the app', () => {
-  for (const key of ['source', 'desc_length', 'used_preset', 'outcome', 'latency_ms',
+  for (const key of ['source', 'desc_length', 'outcome', 'latency_ms',
     'part', 'control', 'is_first_edit', 'ms_since_submit', 'query_len', 'hits',
     'picked', 'index', 'surface', 'format', 'on', 'library_size', 'design_code', 'cta',
     'edits_count', 'has_achievement', 'value']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
+});
+
+// task-21 cleanup: used_preset was removed from generate_submitted (presets
+// stopped touching generate() back in Task 15, so it had been permanently
+// `false` on every real event) — locks that it's gone from the allowlist too,
+// not just quietly dropped from the positive-membership test above.
+test('SAFE_PROPS: used_preset is gone (removed task-21 — presets never touch generate_submitted)', () => {
+  assert.ok(!SAFE_PROPS.has('used_preset'));
+});
+
+// Both polarities (whole-payload equality, per the file header's "PRIVACY
+// ARCHITECTURE" note): desc_length survives; a used_preset prop — should
+// anything ever resurrect the call-site's old shape — does NOT, because it's
+// simply not in the allowlist anymore.
+test('sanitizeEvent: generate_submitted{desc_length} survives whole; a used_preset prop does not', () => {
+  const event = { event: 'generate_submitted', properties: { desc_length: 42, used_preset: false } };
+  assert.deepEqual(sanitizeEvent(event, ORIGIN).properties, { desc_length: 42 });
 });
 
 // task-19 brief §6 — the revenue funnel's own props survive the allowlist
@@ -978,7 +995,7 @@ test('round 3 pre-seed pin: a malformed stored value (not an object, or missing 
 // branches need `mode === 'enabled'`, which needs a browser build.
 test('track() and setSuperProps() do not throw under the no-key gate', () => {
   assert.doesNotThrow(() => {
-    track('generate_submitted', { desc_length: 42, used_preset: false });
+    track('generate_submitted', { desc_length: 42 });
     setSuperProps({ has_library: true });
   });
 });

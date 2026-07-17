@@ -8,9 +8,16 @@
 // further gated per-control on runtime state it owns alone (e.g. hiding
 // 'library' entirely when the library is empty — that's not a layout
 // decision, it's a data one, so it stays out of this pure module).
+//
+// 'download' is deliberately NOT one of these controls (task-21 cleanup —
+// Task 18 review Minor: the Download button in Studio.jsx's header is
+// rendered unconditionally, outside the headerInline/headerOverflow check
+// entirely, so a 'download' entry here was dead data nobody ever read —
+// always inline in both modes by construction, never part of the
+// mobile-collapse decision this module actually makes).
 // ─────────────────────────────────────────────────────────────────────────
 
-const ALL_CONTROLS = ['library', 'save', 'share', 'download'];
+const ALL_CONTROLS = ['library', 'save', 'share'];
 
 /**
  * @param {boolean} isMobile
@@ -18,5 +25,5 @@ const ALL_CONTROLS = ['library', 'save', 'share', 'download'];
  */
 export function headerControls(isMobile) {
   if (!isMobile) return { inline: [...ALL_CONTROLS], overflow: [] };
-  return { inline: ['download'], overflow: ['library', 'save', 'share'] };
+  return { inline: [], overflow: [...ALL_CONTROLS] };
 }

@@ -83,10 +83,17 @@ export default function Library({ onOpenStudio, onBack }) {
     <div style={{ minHeight: '100vh', backgroundImage: pageWash, backgroundAttachment: 'fixed' }}>
       <header style={{ position: 'sticky', top: 0, zIndex: 30, backdropFilter: 'blur(16px)', background: 'rgba(9,12,19,.92)', borderBottom: '1px solid rgba(201,162,75,.18)' }}>
         <div style={{ maxWidth: 1180, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `16px ${PAD}px` }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }} onClick={onBack}>
+          {/* A real <button> (task-21 a11y sweep) — see Studio.jsx's header
+              logo for the same fix (this was a bare onClick div). */}
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to Blazon home"
+            style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit' }}
+          >
             {LOGO}
             <span style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 22, letterSpacing: '.4px', color: C.cream }}>Blazon</span>
-          </div>
+          </button>
           <HoverBtn onClick={() => onOpenStudio('library_nav')} style={{ ...goldBtn, padding: '10px 18px', fontSize: 14 }} hoverStyle={goldBtnHover}>Open the Studio</HoverBtn>
         </div>
       </header>

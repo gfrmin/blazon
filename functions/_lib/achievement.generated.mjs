@@ -952,6 +952,20 @@ function Shield({
   const ch = view.charge;
   const enter = (p) => interactive && onHover ? () => onHover(p) : void 0;
   const leave = interactive && onHover ? () => onHover(null) : void 0;
+  const zoneKeyDown = (handler) => interactive && handler ? (e) => {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      handler(e);
+    }
+  } : void 0;
+  const zoneA11y = (part, handler, label) => interactive ? {
+    role: "button",
+    tabIndex: 0,
+    "aria-label": label,
+    onFocus: enter(part),
+    onBlur: leave,
+    onKeyDown: zoneKeyDown(handler)
+  } : {};
   const zoneStyle = (part, delay, base) => {
     const st = { cursor: interactive ? "pointer" : "default", transition: "filter .2s ease", ...base || {} };
     if (interactive && hoverPart === part) st.filter = "brightness(1.3)";
@@ -978,7 +992,8 @@ function Shield({
             onClick: interactive ? onField : void 0,
             onMouseEnter: enter("field"),
             onMouseLeave: leave,
-            style: zoneStyle("field", "0s", { transition: "fill .45s ease, filter .2s ease" })
+            style: zoneStyle("field", "0s", { transition: "fill .45s ease, filter .2s ease" }),
+            ...zoneA11y("field", onField, "Change the field colour")
           }
         ),
         /* @__PURE__ */ jsxs("g", { clipPath: `url(#${clip})`, children: [
@@ -990,6 +1005,7 @@ function Shield({
               onMouseEnter: enter("ord"),
               onMouseLeave: leave,
               style: zoneStyle("ord", ".55s"),
+              ...zoneA11y("ord", onOrdinary, "Change the structure"),
               children: /* @__PURE__ */ jsx(OrdinaryEl, { type: ord.key, hex: ordHex })
             },
             `ord-${ord.key}-${ord.tincture}`
@@ -1001,6 +1017,7 @@ function Shield({
               onMouseEnter: enter("chg"),
               onMouseLeave: leave,
               style: zoneStyle("chg", "1.1s"),
+              ...zoneA11y("chg", onCharge, "Change the symbol"),
               children: chargeSlots(ch.qty || 1).map((p, i) => (
                 // Geometric charges keep their crisp native shapes; everything else
                 // renders from the vendored R2 art (if available).

@@ -5,7 +5,7 @@ import Turnstile, { turnstileConfigured } from './components/Turnstile.jsx';
 import DownloadDialog from './components/DownloadDialog.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
-import { Swatch, Pill, LangToggle, Disclosure, SubLabel, MenuPopover, MenuItem } from './ui.jsx';
+import { Swatch, Pill, LangToggle, Disclosure, SubLabel, MenuPopover, MenuItem, InfoTip, srOnly } from './ui.jsx';
 import { GildedRule } from './components/Ornament.jsx';
 import SharePopover from './components/SharePopover.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
@@ -115,7 +115,7 @@ function GhostRow({ tag, onRestore }) {
       <span style={cardTagStyle}>{tag}</span>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         <span style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 14, color: C.muted2 }}>None</span>
-        <button onClick={onRestore} style={{ background: 'none', border: 'none', color: '#C9A24B', fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Restore</button>
+        <button onClick={onRestore} style={{ background: 'none', border: 'none', color: C.gold, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Restore</button>
       </div>
     </div>
   );
@@ -160,7 +160,6 @@ export default function Studio({ onBack }) {
   const isMobile = useMediaQuery('(max-width: 820px)');
   const [step, setStep] = useState('describe'); // 'describe' | 'design'
   const [desc, setDesc] = useState('');
-  const [selectedPreset, setSelectedPreset] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [design, setDesign] = useState(null); // a Coat AST
   const [lang, setLang] = useState('plain'); // default = plain English
@@ -237,7 +236,7 @@ export default function Studio({ onBack }) {
     setGenNotice(null);
     const started = Date.now();
     submitStartRef.current = performance.now();
-    track('generate_submitted', { desc_length: desc.length, used_preset: selectedPreset != null });
+    track('generate_submitted', { desc_length: desc.length });
     // Execute Turnstile on submit (invisible unless it needs to challenge —
     // see components/Turnstile.jsx) and await its one-shot token before
     // POSTing. Not configured / not ready yet → resolves null, same fail-safe
@@ -303,7 +302,7 @@ export default function Studio({ onBack }) {
     }
     const fromAi = !!next;
     if (!next) {
-      const p = pickPreset(desc, selectedPreset);
+      const p = pickPreset(desc);
       // Canned presets predate the achievement model — backfill so the
       // fallback path also produces a full achievement, same as the AI path
       // (generate.js runs withDefaultAchievement() server-side).
@@ -349,7 +348,6 @@ export default function Studio({ onBack }) {
     setStep('describe');
     setDesign(null);
     setDesc('');
-    setSelectedPreset(null);
     setCurrentId(null); // "Start over" always starts a fresh, unsaved design
     setNaming(false);
     navigate('/studio', { replace: true });
@@ -755,10 +753,18 @@ export default function Studio({ onBack }) {
     <div style={{ height: isMobile ? 'auto' : '100vh', minHeight: isMobile ? '100vh' : undefined, display: 'flex', flexDirection: 'column', overflow: isMobile ? 'visible' : 'hidden' }}>
       {/* Header */}
       <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: isMobile ? '12px 16px' : '14px 24px', background: '#101A2A', borderBottom: '1px solid rgba(201,162,75,.25)', flex: 'none', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 13, cursor: 'pointer' }} onClick={onBack}>
+        {/* A real <button> (task-21 a11y sweep) — this was a bare onClick
+            div, the only way back to Landing, and entirely unreachable from
+            the keyboard. */}
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to Blazon home"
+          style={{ display: 'flex', alignItems: 'center', gap: 13, cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: 'inherit', font: 'inherit' }}
+        >
           {LOGO}
           <span style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 21 }}>Blazon</span>
-        </div>
+        </button>
         {/* No mode selector by design: the personas (Gifter / Enthusiast / Serious) are an
             internal UX-design instrument, not in-product furniture. Depth is reached through
             progressive disclosure (the Blazon Bar's plain↔formal toggle, "swap this element",
@@ -792,7 +798,7 @@ export default function Studio({ onBack }) {
               {headerInline.includes('save') && (
                 <button
                   onClick={startSave}
-                  style={{ background: 'transparent', color: saved ? '#C9A24B' : C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5, fontFamily: F.sans }}
+                  style={{ background: 'transparent', color: saved ? C.gold : C.cream, border: `1px solid ${C.lineHi}`, padding: '9px 16px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5, fontFamily: F.sans }}
                 >{saved ? 'Saved ✓' : 'Save'}</button>
               )}
               {headerInline.includes('share') && design && (
@@ -856,7 +862,7 @@ export default function Studio({ onBack }) {
 
           {generating && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 22 }}>
-              <div style={{ width: 44, height: 44, border: '3px solid rgba(201,162,75,.25)', borderTopColor: '#C9A24B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <div style={{ width: 44, height: 44, border: '3px solid rgba(201,162,75,.25)', borderTopColor: C.gold, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
               <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 19, color: 'rgba(236,230,216,.85)', maxWidth: '18em', textAlign: 'center', lineHeight: 1.4 }}>Reading your story and drawing the arms…</span>
             </div>
           )}
@@ -893,7 +899,7 @@ export default function Studio({ onBack }) {
                   <img src={dsUrl} alt={formal} onError={() => setDsFailed(true)} style={{ width: '100%', display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }} />
                 ) : (
                   <div style={{ height: isMobile ? 226 : 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: 36, height: 36, border: '3px solid rgba(201,162,75,.25)', borderTopColor: '#C9A24B', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    <div style={{ width: 36, height: 36, border: '3px solid rgba(201,162,75,.25)', borderTopColor: C.gold, borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
                   </div>
                 )}
               </div>
@@ -901,7 +907,7 @@ export default function Studio({ onBack }) {
                 <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
               )}
               {design.motto && design.motto.trim() && (
-                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: '#C9A24B', marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
+                <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: C.gold, marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
               )}
             </div>
           )}
@@ -913,12 +919,17 @@ export default function Studio({ onBack }) {
             <div style={{ animation: 'fadein .4s ease' }}>
               <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 30, margin: '0 0 10px' }}>Tell us their story.</h2>
               <p style={{ fontSize: 14.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 22px' }}>A name, a place, what they loved, what they were like. The more human, the better the arms — we do the rest.</p>
+              {/* A real (visually-hidden) <label>, not just the placeholder
+                  (task-21 a11y sweep — a placeholder alone is not an
+                  accessible name: it vanishes once there's text and isn't
+                  reliably exposed as a label by every screen reader). */}
+              <label htmlFor="describe-textarea" style={srOnly}>Tell us their story</label>
               <textarea
+                id="describe-textarea"
                 value={desc}
                 onChange={(e) => {
                   if (!describeStartedRef.current) { describeStartedRef.current = true; track('describe_started'); }
                   setDesc(e.target.value);
-                  setSelectedPreset(null);
                 }}
                 placeholder="My grandmother was from the Highlands of Scotland. She loved astronomy and the night sky, and she was the steady one who held the family together…"
                 style={{ width: '100%', minHeight: 150, background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 10, padding: 16, color: '#ECE6D8', fontSize: 15, lineHeight: 1.55, resize: 'vertical', fontFamily: 'inherit' }}
@@ -953,7 +964,7 @@ export default function Studio({ onBack }) {
             <div style={{ animation: 'fadein .4s ease' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 28, margin: 0 }}>Here's what we made.</h2>
-                <button onClick={restart} style={{ background: 'transparent', border: 'none', color: '#C9A24B', fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Start over</button>
+                <button onClick={restart} style={{ background: 'transparent', border: 'none', color: C.gold, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Start over</button>
               </div>
               <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to change a colour or shape. Open “more…” to go further — you don’t need to know a single heraldic word to start.</p>
 
@@ -1058,6 +1069,7 @@ export default function Studio({ onBack }) {
                     value={chargeQuery}
                     onChange={(e) => { searchPickedRef.current = false; setChargeQuery(e.target.value); }}
                     placeholder="Search charges — lion, ship, oak, sun, harp…"
+                    aria-label="Search the charge catalog"
                     style={{ width: '100%', background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 8, padding: '9px 12px', color: '#ECE6D8', fontSize: 13.5, fontFamily: 'inherit', marginBottom: 10 }}
                   />
                   {chargeQuery.trim() ? (() => {
@@ -1100,9 +1112,9 @@ export default function Studio({ onBack }) {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '6px 0 13px' }}>
                       <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)' }}>How many</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#16273E', borderRadius: 8, padding: '5px 6px' }}>
-                        <button onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
+                        <button aria-label="Fewer" onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
                         <span style={{ fontSize: 15, minWidth: 14, textAlign: 'center', fontWeight: 600 }}>{chg.number}</span>
-                        <button onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) + 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
+                        <button aria-label="More" onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) + 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>+</button>
                       </div>
                     </div>
                     {(chg.number || 1) > 1 && (
@@ -1125,7 +1137,7 @@ export default function Studio({ onBack }) {
                 <p style={{ fontSize: 13.5, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: 0, flex: 1 }}>{CHAPTER_INTRO}</p>
                 <button
                   onClick={toggleJustShield}
-                  style={{ flex: 'none', background: 'none', border: 'none', color: '#C9A24B', fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap', marginTop: 2, fontFamily: F.sans, padding: 0 }}
+                  style={{ flex: 'none', background: 'none', border: 'none', color: C.gold, fontSize: 12.5, cursor: 'pointer', textDecoration: 'underline', whiteSpace: 'nowrap', marginTop: 2, fontFamily: F.sans, padding: 0 }}
                 >{showAchievement ? 'Just the shield' : 'Full achievement'}</button>
               </div>
 
@@ -1275,9 +1287,12 @@ export default function Studio({ onBack }) {
       </div>
 
       {/* Blazon bar — always visible */}
-      <div style={{ flex: 'none', background: '#0A0D14', borderTop: '1.5px solid #C9A24B', padding: isMobile ? '14px 16px' : '16px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 20 }}>
+      <div style={{ flex: 'none', background: '#0A0D14', borderTop: `1.5px solid ${C.gold}`, padding: isMobile ? '14px 16px' : '16px 28px', display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? 12 : 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 'none' }}>
-          <span title="The blazon is the official written description of your arms — every coat of arms has one." style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(201,162,75,.5)', color: '#C9A24B', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontStyle: 'italic', cursor: 'help', fontFamily: "'Cormorant Garamond', serif", flex: 'none' }}>i</span>
+          {/* A real focusable/clickable popover (task-21 a11y sweep) —
+              replaces a `title`-only tooltip, which never reaches a keyboard
+              or screen-reader user. */}
+          <InfoTip label="What is a blazon?" placement="top">The blazon is the official written description of your arms — every coat of arms has one.</InfoTip>
           <LangToggle value={lang} onFormal={() => { setLang('formal'); track('blazon_lang_toggled'); }} onPlain={() => { setLang('plain'); track('blazon_lang_toggled'); }} plainLabel="Plain English" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1287,7 +1302,7 @@ export default function Studio({ onBack }) {
               : <span style={{ fontSize: isMobile ? 15 : 17, color: 'rgba(236,230,216,.82)' }}>{blazon(design, 'plain')}</span>)
             : <span style={{ fontSize: 15, color: 'rgba(236,230,216,.4)', fontStyle: 'italic' }}>Your blazon will be written here as you design.</span>}
         </div>
-        <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? '#C9A24B' : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
+        <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? C.gold : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
 
       <DownloadDialog

@@ -196,6 +196,27 @@ export default function Shield({
   const enter = (p) => (interactive && onHover ? () => onHover(p) : undefined);
   const leave = interactive && onHover ? () => onHover(null) : undefined;
 
+  // Keyboard equivalent of onClick for the interactive zones (task-21 a11y
+  // sweep — these were mouse-only: a click handler with no tabIndex/role/
+  // keydown is invisible to keyboard/screen-reader users even though it's
+  // the hero's advertised interaction). Enter and Space both activate, same
+  // as a native <button>; Space must preventDefault or the page would also
+  // scroll.
+  const zoneKeyDown = (handler) => (interactive && handler ? (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      handler(e);
+    }
+  } : undefined);
+  const zoneA11y = (part, handler, label) => (interactive ? {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': label,
+    onFocus: enter(part),
+    onBlur: leave,
+    onKeyDown: zoneKeyDown(handler),
+  } : {});
+
   // Per-zone style: hover wins (brightness); else breathe while autoHint; else
   // the change-morph. NB: only set `filter` inline when hovering, so the
   // zonepulse keyframe controls brightness the rest of the time.
@@ -229,6 +250,7 @@ export default function Shield({
         onMouseEnter={enter('field')}
         onMouseLeave={leave}
         style={zoneStyle('field', '0s', { transition: 'fill .45s ease, filter .2s ease' })}
+        {...zoneA11y('field', onField, 'Change the field colour')}
       />
 
       <g clipPath={`url(#${clip})`}>
@@ -245,6 +267,7 @@ export default function Shield({
             onMouseEnter={enter('ord')}
             onMouseLeave={leave}
             style={zoneStyle('ord', '.55s')}
+            {...zoneA11y('ord', onOrdinary, 'Change the structure')}
           >
             <OrdinaryEl type={ord.key} hex={ordHex} />
           </g>
@@ -257,6 +280,7 @@ export default function Shield({
             onMouseEnter={enter('chg')}
             onMouseLeave={leave}
             style={zoneStyle('chg', '1.1s')}
+            {...zoneA11y('chg', onCharge, 'Change the symbol')}
           >
             {chargeSlots(ch.qty || 1).map((p, i) => (
               // Geometric charges keep their crisp native shapes; everything else

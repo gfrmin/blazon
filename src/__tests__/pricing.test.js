@@ -41,3 +41,12 @@ test('every tier has non-empty tier/priceLabel/body strings', () => {
     assert.ok(p.body && p.body.trim());
   }
 });
+
+// task-21 Minor (folded in from Task 20's review): the coming-soon print
+// tier's body must read as a plan, not a live, present-tense active
+// service — a skimmer shouldn't be able to mistake it for something they
+// can order today just because it sits next to a small "· coming soon" label.
+test('the coming-soon print tier body does not open with a present-tense active verb', () => {
+  const print = PRICING_TIERS.find((p) => p.id === 'print');
+  assert.ok(!/^(printed|delivered|shipped|framed)\b/i.test(print.body), `body reads present-tense: "${print.body}"`);
+});

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Shield from './Shield.jsx';
 import Achievement from './Achievement.jsx';
 import CreditsLink from './Credits.jsx';
-import { HoverBtn, LangToggle, Lift } from './ui.jsx';
+import { HoverBtn, LangToggle, Lift, srOnly } from './ui.jsx';
 import { useMediaQuery } from './useMediaQuery.js';
 import { C, F, goldBtn, goldBtnHover, eyebrow, pageWash, parchSurface } from './theme.js';
 import { GildedRule, FrameCorners, ParchInset, DropCap } from './components/Ornament.jsx';
@@ -239,15 +239,15 @@ export default function Landing({ onOpenStudio }) {
           {/* Hero inline describe input (task-20 brief §3) — the highest-leverage
               activation lever: type here, submit, and land in the Studio already
               generating (heroStudioUrl → /studio?desc=..., Studio's existing
-              ?desc= arrival path, Task 4/15). aria-label stands in for a visible
-              <label> (a11y basics now; the fuller sweep is Task 21) so the input
-              still has a proper accessible name even though — like Studio's own
-              describe textarea — the visual cue is the placeholder. */}
+              ?desc= arrival path, Task 4/15). A real (visually-hidden) <label>,
+              not just the placeholder (task-21 a11y sweep — upgraded from the
+              aria-label Task 20 shipped as an interim a11y basic). */}
           <form onSubmit={submitHeroDescribe} style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label htmlFor="hero-describe-input" style={srOnly}>Describe someone, to design their coat of arms</label>
             <input
+              id="hero-describe-input"
               value={heroDesc}
               onChange={(e) => setHeroDesc(e.target.value)}
-              aria-label="Describe someone, to design their coat of arms"
               placeholder="A grandmother who spent her life by the sea…"
               style={{ flex: '1 1 260px', minWidth: 220, background: C.panel2, border: `1px solid ${C.lineHi}`, borderRadius: 8, padding: '14px 16px', color: C.cream, fontSize: 15.5, fontFamily: F.sans }}
             />
@@ -418,7 +418,12 @@ export default function Landing({ onOpenStudio }) {
         <GildedRule />
         <h2 style={h2Style}>Pricing</h2>
         <p style={{ textAlign: 'center', color: C.muted, fontSize: 16.5, lineHeight: 1.55, margin: '0 auto', maxWidth: '34em' }}>Design for free. Take the finished files for $19 when you love what you’ve made — the print edition is on its way.</p>
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3,1fr)', gap: 18, marginTop: 44 }}>
+        {/* Tablet (721–1000px) gets its own 2-col treatment (task-21 Minor,
+            folded in from Task 20's review) — 3-up read as cramped at that
+            width. The lone coming-soon "Printed & framed" card spans the
+            full row beneath the two real (buyable/free) tiers rather than
+            sitting alone in a half-empty second row. */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2,1fr)' : 'repeat(3,1fr)', gap: 18, marginTop: 44 }}>
           {PRICING_TIERS.map((p) => {
             const cardStyle = {
               background: p.highlight ? `linear-gradient(180deg, ${C.panel}, ${C.bg2})` : C.bg2,
@@ -426,6 +431,7 @@ export default function Landing({ onOpenStudio }) {
               borderRadius: 14, padding: '28px 24px', position: 'relative',
               opacity: p.comingSoon ? 0.6 : 1,
               width: '100%', textAlign: 'left', fontFamily: 'inherit',
+              gridColumn: isTablet && !isMobile && p.comingSoon ? '1 / -1' : undefined,
             };
             return (
               <Lift
