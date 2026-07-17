@@ -27,17 +27,51 @@
 // its own construction — $prev_pageview_pathname was only found by reading
 // posthog-js source mid-verification, after the finding had already named
 // six. A future posthog-js bump can add a tenth at any time and it would
-// ship raw. `before_send` (see `sanitizeEvent` below) is now an ALLOWLIST:
-// `SAFE_PROPS` names every property this app actually wants to leave the
-// browser, and everything else is dropped — not rewritten — by construction.
-// The nine URL/pathname/referrer properties are the one deliberate
-// exception: instead of being dropped, they're rewritten to a sanitized
-// form (origin + collapsed pathname; external-only referrer) because
-// dashboards do rely on them. `$exception_list` gets the same treatment
-// (stack frame filenames sanitized) since capture_exceptions:true means
-// exception payloads flow through this same hook. See
+// ship raw. `before_send` (see `sanitizeEvent` below) is now an ALLOWLIST
+// for every event that reaches it: `SAFE_PROPS` names every property this
+// app actually wants to leave the browser via `capture()`, and everything
+// else is dropped — not rewritten — by construction. The nine URL/pathname/
+// referrer properties are the one deliberate exception: instead of being
+// dropped, they're rewritten to a sanitized form (origin + collapsed
+// pathname; external-only referrer) because dashboards do rely on them.
+// `$exception_list` gets the same treatment (stack frame filenames
+// sanitized) since capture_exceptions:true means exception payloads flow
+// through this same hook. SCOPE NOTE, corrected in round 2 below:
+// `before_send` only ever sees events that go through `capture()` — it is
+// NOT a boundary for every byte that leaves the browser. See
 // .superpowers/sdd/briefs/task-7-report.md's "Hardening (allowlist
 // inversion)" section for the full SAFE_PROPS derivation.
+//
+// Privacy (review round 2 — /flags egress, CRITICAL): `before_send` is the
+// `capture()` boundary, not THE egress boundary — the paragraph above
+// overstated its reach. posthog-js's feature-flags module
+// (posthog-featureflags.js's `_callFlagsEndpoint`) POSTs `person_properties`
+// straight to `/flags/?v=2` via `_send_request`, entirely bypassing
+// `capture()`/`before_send`. Those `person_properties` are built from
+// `persistence.get_initial_props()`, which expands a stored
+// `$initial_person_info` ({r, u} — the RAW, un-sanitized referrer/URL, hash
+// and query intact) into `$initial_current_url`/`$initial_pathname`/
+// `$initial_referrer`. That store is written once, on the FIRST-EVER
+// `capture()` call, and persisted via `register_once` — so one poisoned
+// first capture (e.g. a `/a/<payload>` share arrival that redirects to
+// `/studio#<motto-hash>` before PostHog finishes loading) contaminates
+// every future `/flags` call for that browser, forever. Two closures, both
+// in `init()` below: (1) pre-seed the `$initial_person_info` persistence
+// key with an already-sanitized `{r, u}` immediately after `ph.init()` and
+// before the queued-event flush, so posthog-js's own `register_once` finds
+// it already set and never overwrites it with the raw value — this also
+// remediates a browser poisoned before this fix shipped, since the seed
+// uses `register()` (unconditional overwrite), not `register_once`.
+// (2) Session recording, surveys, product tours, and conversations each
+// ship their own payloads over their own transports, independent of
+// `capture()` — this app doesn't use any of them, so they're disabled
+// outright in `ph.init()` rather than trusted to stay out of scope.
+// `posthog-logs` has no equivalent client-side kill switch in this SDK
+// version (see the comment above `disable_conversations` in `init()`) and
+// is remote-config-gated, not live today — flagged, not fixed. See
+// .superpowers/sdd/briefs/task-7-report.md's "Fix (review round 2 — /flags
+// egress)" section for the full trace, the live-verification payloads, and
+// why `advanced_disable_flags` was rejected as the closure mechanism.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { onNavigate } from './router.js';
@@ -123,6 +157,33 @@ export function _sanitizeReferrer(referrer, origin) {
   } catch {
     return referrer;
   }
+}
+
+// ── $initial_person_info pre-seed (review round 2 — closes the /flags leak) ──
+// posthog-js's own persistence key name for this — see
+// node_modules/posthog-js/lib/src/constants.js:90's `INITIAL_PERSON_INFO`,
+// pinned against the actually-installed package in analytics.test.js so a
+// version bump that renames/reshapes it fails a test loudly instead of
+// silently reopening the leak. Exported so that pin test can compare
+// against this exact value rather than a second hardcoded copy.
+export const INITIAL_PERSON_INFO_KEY = '$initial_person_info';
+
+// posthog-js persists exactly this {r, u} shape and later expands it into
+// $initial_current_url/$initial_pathname/$initial_referrer wherever
+// get_initial_props() is read — including posthog-featureflags.js's /flags
+// POST body, which never goes through before_send/sanitizeEvent at all (see
+// the file header's "review round 2" note). Built from the SAME
+// _sanitizeUrl/_sanitizeReferrer helpers before_send uses, so the pre-seed
+// and the after-the-fact rewrite can never disagree about what "sanitized"
+// means. `r` always gets a value ('$direct' is posthog-js's own sentinel
+// for "no referrer", reused here when a same-origin referrer is dropped);
+// `u` is omitted entirely if the current URL is unparseable, matching
+// _sanitizeUrl's own drop-not-raw-passthrough contract.
+export function _sanitizedInitialPersonInfo(href, referrer, origin) {
+  const info = { r: _sanitizeReferrer(referrer || '$direct', origin) || '$direct' };
+  const u = _sanitizeUrl(href);
+  if (u !== undefined) info.u = u;
+  return info;
 }
 
 // Stack frame filenames inside $exception_list can, in principle, equal the
@@ -277,6 +338,22 @@ export function _sanitizeProps(properties, origin) {
   return out;
 }
 
+// $unset (posthog-core.js:1121-1123, set from options.$unset in capture())
+// is an array of property NAME STRINGS to delete server-side, not a
+// {key: value} bag like $set/$set_once — so it gets its own filter: keep
+// only names this file's allowlist actually recognizes (SAFE_PROPS, or one
+// of the special URL/pathname/referrer/$exception_list keys), drop
+// everything else. No call-site in this app passes options.$unset today
+// (grepped every track() call-site in src/Studio.jsx/Landing.jsx/
+// DownloadDialog.jsx) — this is defensive completeness, matching this
+// file's stated allowlist stance, not a live gap. A malformed (non-array)
+// shape is dropped entirely, same fail-toward-less-info stance as
+// _sanitizeExceptionList.
+export function _sanitizeUnset(unset) {
+  if (!Array.isArray(unset)) return undefined;
+  return unset.filter((key) => typeof key === 'string' && (SAFE_PROPS.has(key) || SPECIAL_KEY_HANDLERS.has(key)));
+}
+
 // In-memory, cheap-to-read counter of events dropped because sanitization
 // itself threw (the fail-closed path below) — no I/O at drop time, mirrors
 // this file's existing in-memory `queue` style. Reset via _resetForTests.
@@ -317,6 +394,15 @@ export function sanitizeEvent(event, origin) {
     }
     if (event.$set && typeof event.$set === 'object') {
       next.$set = _sanitizeProps(event.$set, origin);
+    }
+    // $unset (Minor, review round 2): an array of property NAMES, not a
+    // properties bag — see _sanitizeUnset above. Explicitly deletes the
+    // spread-through raw copy on a malformed shape rather than letting it
+    // survive untouched.
+    if (event.$unset !== undefined) {
+      const cleanUnset = _sanitizeUnset(event.$unset);
+      if (cleanUnset !== undefined) next.$unset = cleanUnset;
+      else delete next.$unset;
     }
     return next;
   } catch (err) {
@@ -385,13 +471,75 @@ async function init() {
       // We drive pageviews ourselves off the router (see onNavigate below) —
       // disable PostHog's own history-change tracking so it never double-fires.
       capture_pageview: false,
+      // Transports that egress OUTSIDE capture()/before_send entirely (see
+      // the file header's "review round 2" note) — this app uses none of
+      // them, so they're turned off outright rather than trusted to stay out
+      // of scope. `disable_web_experiments` is already this SDK's own
+      // default (true, see node_modules/posthog-js/lib/src/posthog-core.js's
+      // defaultConfig); named here anyway so the audit trail is explicit and
+      // complete. `posthog-logs` (console-log capture) has NO equivalent
+      // client-side kill switch in posthog-js 1.404.0 (see
+      // node_modules/posthog-js/lib/src/posthog-logs.js) — it's purely
+      // opt-in via a `logs` config object this app never passes, or
+      // server-remote-config-driven (`onRemoteConfig`) with no local
+      // override to block a future org-level enable; not live today (see
+      // task-7-report.md's "Fix (review round 2 — /flags egress)" section)
+      // — flagged, not fixed, since there's nothing in this app's config
+      // surface to set.
+      disable_session_recording: true,
+      disable_surveys: true,
+      disable_product_tours: true,
+      disable_conversations: true,
+      disable_web_experiments: true,
       // Allowlist every outgoing event — see `sanitizeEvent`/`SAFE_PROPS`
       // above for what/why. `before_send` runs on every capture() call
       // unconditionally (incl. $exception, since capture_exceptions:true
-      // above, and $identify/autocapture-adjacent internals), so this is the
-      // one chokepoint that covers all of them.
+      // above, and $identify/autocapture-adjacent internals) — but it's the
+      // capture()-boundary chokepoint, NOT an egress-boundary one: it never
+      // sees /flags (closed by the pre-seed below) or the disabled
+      // transports above (closed by turning them off). See the file header
+      // for the full picture.
       before_send: (event) => sanitizeEvent(event, window.location.origin),
     });
+    // Pre-seed posthog-js's own $initial_person_info persistence key (see
+    // the file header's "review round 2" note) with an already-sanitized
+    // {r, u} BEFORE any capture() call — including the queued-event flush
+    // just below — can trigger posthog-js's real set_initial_person_info().
+    // That function's own persistence.register_once() call finds the key
+    // already present and never overwrites it, so every $initial_* property
+    // derived from it (get_initial_props(), read by BOTH capture()'s
+    // $set_once and posthog-featureflags.js's /flags person_properties)
+    // comes out clean. Uses persistence.register() (unconditional
+    // overwrite), not register_once, so a browser already poisoned by a
+    // real dirty value before this fix shipped gets cleaned on its very
+    // next page load too, not just protected going forward.
+    //
+    // This reaches into a documented-but-internal posthog-js seam (there's
+    // no public API for "seed my initial person info"), so it's guarded
+    // like untrusted input: feature-detected, try/catched, and pinned by a
+    // test (analytics.test.js) that imports the REAL installed posthog-js
+    // persistence module and fails loudly — not silently — if the constant,
+    // the method, or register_once's no-op-when-already-set behavior ever
+    // changes shape in a future posthog-js version.
+    try {
+      if (ph.persistence && typeof ph.persistence.register === 'function') {
+        ph.persistence.register({
+          [INITIAL_PERSON_INFO_KEY]: _sanitizedInitialPersonInfo(
+            window.location.href,
+            document.referrer,
+            window.location.origin
+          ),
+        });
+      }
+    } catch {
+      // Best-effort: if posthog-js's persistence shape changed underneath
+      // this, don't let that break init() (fail open on transport, per this
+      // file's stated stance) — before_send and the disabled transports
+      // above remain the backstop for every capture()-routed event; only
+      // /flags' person_properties stays exposed to this specific gap until
+      // the pin test above (which would already be failing loudly) is
+      // investigated.
+    }
     posthog = ph;
     if (Object.keys(pendingSuperProps).length) posthog.register(pendingSuperProps);
     queue.forEach(([name, props]) => posthog.capture(name, props));

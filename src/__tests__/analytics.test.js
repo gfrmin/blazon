@@ -6,6 +6,7 @@ import {
   _sanitizePathname, _sanitizeUrl, _sanitizeReferrer,
   _sanitizeExceptionFrameFilename, _sanitizeExceptionList, _sanitizeProps,
   sanitizeEvent, SAFE_PROPS, _sanitizeFailureCount,
+  _sanitizedInitialPersonInfo, _sanitizeUnset, INITIAL_PERSON_INFO_KEY,
 } from '../analytics.js';
 
 const ORIGIN = 'https://blazon.example';
@@ -238,6 +239,46 @@ test('_sanitizeReferrer: posthog-js\'s "$direct" sentinel (not a URL) passes thr
 test('_sanitizeReferrer: empty/falsy referrer passes through unchanged', () => {
   assert.equal(_sanitizeReferrer('', 'https://blazon.example'), '');
   assert.equal(_sanitizeReferrer(undefined, 'https://blazon.example'), undefined);
+});
+
+// ── $initial_person_info pre-seed (review round 2 — closes the /flags leak) ──
+
+test('_sanitizedInitialPersonInfo: motto-bearing hash + query stripped from u, /a/<payload> path collapsed', () => {
+  assert.deepEqual(
+    _sanitizedInitialPersonInfo('https://blazon.example/a/cPAYLOAD_WITH_MOTTO?desc=secret#cMOTTO_HASH', '', ORIGIN),
+    { r: '$direct', u: 'https://blazon.example/a' }
+  );
+});
+
+test('_sanitizedInitialPersonInfo: studio autosave hash stripped, pathname untouched', () => {
+  const info = _sanitizedInitialPersonInfo('https://blazon.example/studio#cMOTTO_PER_ARDUA_AD_ASTRA', '$direct', ORIGIN);
+  assert.deepEqual(info, { r: '$direct', u: 'https://blazon.example/studio' });
+  assert.ok(!JSON.stringify(info).includes('MOTTO'));
+});
+
+test('_sanitizedInitialPersonInfo: same-origin referrer (itself potentially a motto-bearing URL) becomes $direct', () => {
+  const info = _sanitizedInitialPersonInfo(
+    'https://blazon.example/studio',
+    'https://blazon.example/studio#cPREVIOUS_MOTTO',
+    ORIGIN
+  );
+  assert.equal(info.r, '$direct');
+});
+
+test('_sanitizedInitialPersonInfo: external referrer passes through unchanged', () => {
+  const info = _sanitizedInitialPersonInfo('https://blazon.example/studio', 'https://www.google.com/', ORIGIN);
+  assert.equal(info.r, 'https://www.google.com/');
+});
+
+test('_sanitizedInitialPersonInfo: empty/missing referrer falls back to $direct (matches posthog-js\'s own getReferrer())', () => {
+  assert.equal(_sanitizedInitialPersonInfo('https://blazon.example/', '', ORIGIN).r, '$direct');
+  assert.equal(_sanitizedInitialPersonInfo('https://blazon.example/', undefined, ORIGIN).r, '$direct');
+});
+
+test('_sanitizedInitialPersonInfo: unparseable href omits `u` entirely rather than a raw passthrough', () => {
+  const info = _sanitizedInitialPersonInfo('not a url', '$direct', ORIGIN);
+  assert.deepEqual(info, { r: '$direct' });
+  assert.ok(!('u' in info));
 });
 
 // ── exception-list frame filename sanitization ──────────────────────────
@@ -585,6 +626,43 @@ test('sanitizeEvent: also sanitizes $set_once (posthog can attach $initial_* URL
   assert.ok(!JSON.stringify(clean).includes('SECRET_MOTTO'));
 });
 
+// ── $unset (Minor, review round 2): array of property NAMES, not a bag ──
+
+test('_sanitizeUnset: keeps only allowlisted/special names, drops the rest', () => {
+  assert.deepEqual(
+    _sanitizeUnset(['desc_length', 'token', '$current_url', 'totally_unheard_of_prop']),
+    ['desc_length', 'token', '$current_url']
+  );
+});
+
+test('_sanitizeUnset: a malformed (non-array) shape is dropped, not passed through raw', () => {
+  assert.equal(_sanitizeUnset('not an array'), undefined);
+  assert.equal(_sanitizeUnset(undefined), undefined);
+  assert.equal(_sanitizeUnset({ desc_length: true }), undefined);
+});
+
+test('_sanitizeUnset: non-string array entries are dropped too', () => {
+  assert.deepEqual(_sanitizeUnset(['token', 42, null, 'desc_length']), ['token', 'desc_length']);
+});
+
+test('sanitizeEvent: $unset — safe names survive, unnamed names dropped', () => {
+  const raw = { event: '$identify', properties: { token: 't1' }, $unset: ['desc_length', 'unnamed_junk', '$referrer'] };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.deepEqual(clean.$unset, ['desc_length', '$referrer']);
+});
+
+test('sanitizeEvent: a malformed $unset is dropped entirely, not spread through raw', () => {
+  const raw = { event: '$identify', properties: { token: 't1' }, $unset: 'not-an-array' };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.ok(!('$unset' in clean));
+});
+
+test('sanitizeEvent: no $unset field at all is simply absent from the output', () => {
+  const raw = { event: '$identify', properties: { token: 't1' } };
+  const clean = sanitizeEvent(raw, ORIGIN);
+  assert.ok(!('$unset' in clean));
+});
+
 test('sanitizeEvent: does not mutate the input event/properties objects', () => {
   const original = { event: '$pageview', properties: { $current_url: 'https://blazon.example/studio#x', token: 't1' } };
   const snapshotProps = { ...original.properties };
@@ -641,6 +719,107 @@ test('SAFE_PROPS: contains every real own-event prop key used by track() call-si
     'picked', 'index', 'surface', 'format']) {
     assert.ok(SAFE_PROPS.has(key), `${key} should be in SAFE_PROPS`);
   }
+});
+
+// ── pre-seed pin: exercised against the REAL, installed posthog-js internals ──
+//
+// Everything above tests our own pure logic. These tests instead import the
+// actual `posthog-js/lib/src/constants.js` and `posthog-js/lib/src/
+// posthog-persistence.js` modules (both plain JS, no DOM required at import
+// or at the specific methods exercised here — verified: PostHogPersistence
+// is constructible and register()/register_once()/get_initial_props() all
+// run under plain `node --test`, no jsdom) and run the REAL
+// register()-then-register_once()-then-get_initial_props() round trip our
+// `init()` pre-seed depends on. This is the "test that fails loudly if the
+// key/shape changes in a future version" the brief asked for: if a future
+// posthog-js renames INITIAL_PERSON_INFO, changes register_once's
+// already-set skip condition, or reshapes what get_initial_props() derives
+// from {r, u}, these tests fail here — not silently in production.
+//
+// (The raw/dirty side of the leak — i.e. what get_initial_props() would
+// return WITHOUT the pre-seed — needs a real `location.href`/
+// `document.referrer`, which don't exist under plain Node; that side is
+// covered by the live Playwright drive in task-7-report.md instead, same
+// split as the rest of this file's browser-dependent behavior.)
+
+test('pre-seed pin: INITIAL_PERSON_INFO_KEY matches the actually-installed posthog-js constant', async () => {
+  const { INITIAL_PERSON_INFO } = await import('posthog-js/lib/src/constants.js');
+  assert.equal(
+    INITIAL_PERSON_INFO_KEY,
+    INITIAL_PERSON_INFO,
+    'analytics.js\'s hardcoded key has drifted from posthog-js\'s own constants.js — update INITIAL_PERSON_INFO_KEY'
+  );
+});
+
+test('pre-seed pin: PostHogPersistence still exposes register/register_once/get_initial_props/set_initial_person_info as functions', async () => {
+  const { PostHogPersistence } = await import('posthog-js/lib/src/posthog-persistence.js');
+  for (const method of ['register', 'register_once', 'get_initial_props', 'set_initial_person_info']) {
+    assert.equal(
+      typeof PostHogPersistence.prototype[method],
+      'function',
+      `posthog-js's PostHogPersistence.prototype.${method} is missing or no longer a function — the init() pre-seed relies on it`
+    );
+  }
+});
+
+test('pre-seed pin: a pre-seeded sanitized value survives the REAL set_initial_person_info() no-op and comes back clean via get_initial_props()', async () => {
+  const { PostHogPersistence } = await import('posthog-js/lib/src/posthog-persistence.js');
+  const persistence = new PostHogPersistence({
+    token: 'pin-test-token',
+    persistence: 'memory',
+    persistence_name: '',
+    disable_persistence: false,
+    mask_personal_data_properties: false,
+    custom_personal_data_properties: [],
+    disable_capture_url_hashes: false,
+  });
+
+  // Exactly what init() does: pre-seed with OUR sanitized value, built from
+  // a deliberately dirty/motto-bearing href, the same fixture shape used
+  // throughout this file.
+  const seed = _sanitizedInitialPersonInfo(
+    'https://blazon.example/studio#cPRESEED_PIN_MOTTO_SECRET',
+    'https://blazon.example/a/cPRESEED_PIN_PAYLOAD',
+    ORIGIN
+  );
+  assert.ok(!JSON.stringify(seed).includes('PRESEED_PIN'), 'the seed itself must already be clean');
+  persistence.register({ [INITIAL_PERSON_INFO_KEY]: seed });
+
+  // Now call posthog-js's REAL internal method that would normally poison
+  // this key from the live (dirty) location.href/document.referrer — under
+  // plain Node those globals don't exist, so register_once's own
+  // "already set" skip is what's actually under test here, using the exact
+  // method init() relies on running after the pre-seed.
+  persistence.set_initial_person_info();
+
+  assert.deepEqual(
+    persistence.props[INITIAL_PERSON_INFO_KEY],
+    seed,
+    'set_initial_person_info() overwrote the pre-seeded value — register_once\'s already-set skip no longer holds'
+  );
+
+  const initialProps = persistence.get_initial_props();
+  assert.equal(initialProps.$initial_current_url, 'https://blazon.example/studio');
+  assert.equal(initialProps.$initial_referrer, '$direct'); // same-origin referrer dropped to $direct
+  const dump = JSON.stringify(initialProps);
+  assert.ok(!dump.includes('PRESEED_PIN'), dump);
+  assert.ok(!dump.includes('#'), dump);
+});
+
+test('pre-seed pin: after the pre-seed for a motto-bearing /studio#<hash> URL, the persisted $initial_person_info carries no hash/query/`/a/` payload', () => {
+  const seed = _sanitizedInitialPersonInfo(
+    'https://blazon.example/studio?desc=grandmother%20astronomer#cMOTTO_PER_ARDUA_AD_ASTRA',
+    'https://blazon.example/a/cSHARE_PAYLOAD_MARKER',
+    ORIGIN
+  );
+  const dump = JSON.stringify(seed);
+  assert.ok(!dump.includes('#'), dump);           // no hash
+  assert.ok(!dump.includes('desc='), dump);        // no query
+  assert.ok(!dump.includes('grandmother'), dump);  // no free text
+  assert.ok(!dump.includes('/a/'), dump);           // no uncollapsed share payload path
+  assert.ok(!dump.includes('MOTTO'), dump);
+  assert.ok(!dump.includes('SHARE_PAYLOAD_MARKER'), dump);
+  assert.deepEqual(seed, { r: '$direct', u: 'https://blazon.example/studio' });
 });
 
 // track()/setSuperProps() themselves: under node --test `mode` is always
