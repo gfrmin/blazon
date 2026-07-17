@@ -839,8 +839,16 @@ export default function Studio({ onBack }) {
               )}
             </>
           )}
+          {/* A real disabled state (task-21 — closes a Task 6 review Minor
+              forward-noted for M5 a11y: opacity alone communicated nothing
+              to a keyboard/screen-reader user, who could Tab to and
+              "activate" a button that silently did nothing before a design
+              existed). openDownload() already no-ops without a design
+              (belt-and-braces), same pattern already used on the describe
+              step's generate button. */}
           <button
             onClick={() => openDownload('header')}
+            disabled={!design}
             style={{ ...goldBtn, padding: '9px 18px', fontSize: 13.5, cursor: design ? 'pointer' : 'default', opacity: design ? 1 : .5 }}
           >Download</button>
         </div>

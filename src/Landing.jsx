@@ -437,7 +437,14 @@ export default function Landing({ onOpenStudio }) {
               <Lift
                 key={p.id}
                 as={p.comingSoon ? 'button' : 'div'}
-                {...(p.comingSoon ? { type: 'button', onClick: notePrintInterest, disabled: printNoted } : {})}
+                // aria-disabled, not the native `disabled` attribute (task-21
+                // — closes a Task 6 review Minor forward-noted for M5 a11y):
+                // a real `disabled` button loses focus the instant it flips,
+                // which would fling a keyboard user's focus back to <body>
+                // right after they activated it. notePrintInterest is
+                // already idempotent-guarded (`if (printNoted) return`), so
+                // nothing relies on the native attribute for correctness.
+                {...(p.comingSoon ? { type: 'button', onClick: notePrintInterest, 'aria-disabled': printNoted || undefined } : {})}
                 style={{ ...cardStyle, cursor: p.comingSoon ? (printNoted ? 'default' : 'pointer') : 'default' }}
               >
                 {p.highlight && <div style={{ position: 'absolute', top: -11, left: 24, background: C.gold, color: C.goldInk, fontSize: 10, fontWeight: 700, letterSpacing: '1px', padding: '4px 11px', borderRadius: 20 }}>OWN IT</div>}
@@ -447,7 +454,11 @@ export default function Landing({ onOpenStudio }) {
                 </div>
                 <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.55, margin: 0 }}>{p.body}</p>
                 {p.comingSoon && (
-                  <div style={{ fontSize: 12, color: printNoted ? C.gold : C.muted2, marginTop: 14, textDecoration: printNoted ? 'none' : 'underline' }}>
+                  // role="status" (task-21 — the other half of the same Task
+                  // 6 Minor): announces the "Noted" confirmation to screen
+                  // reader users, who otherwise get no feedback at all that
+                  // their tap registered.
+                  <div role="status" style={{ fontSize: 12, color: printNoted ? C.gold : C.muted2, marginTop: 14, textDecoration: printNoted ? 'none' : 'underline' }}>
                     {printNoted ? 'Noted — we’ll let you know.' : 'Tap to say you’d buy this →'}
                   </div>
                 )}

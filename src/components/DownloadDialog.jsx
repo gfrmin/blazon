@@ -254,9 +254,17 @@ export default function DownloadDialog({ open, onClose, design, surface, current
           </div>
         )}
 
+        {/* aria-disabled + aria-live, not the native `disabled` attribute
+            (task-21 — closes a Task 6 review Minor forward-noted for M5
+            a11y: a real `disabled` button loses focus the instant it flips,
+            flinging a keyboard user back to the dialog root right after they
+            activated it; aria-live announces the "Noted." confirmation to
+            screen reader users, who otherwise got no feedback at all).
+            onClick's own printNoted ternary already no-ops a second tap. */}
         <button
           onClick={printNoted ? undefined : noteInterest}
-          disabled={printNoted}
+          aria-disabled={printNoted || undefined}
+          aria-live="polite"
           style={{ display: 'block', width: '100%', textAlign: 'center', background: 'none', border: 'none', padding: 0, fontSize: 12.5, color: printNoted ? C.gold : C.muted2, textDecoration: printNoted ? 'none' : 'underline', cursor: printNoted ? 'default' : 'pointer', fontFamily: F.sans }}
         >
           {printNoted ? 'Noted.' : 'Printed, framed and posted — coming soon.'}
