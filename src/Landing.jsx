@@ -173,20 +173,19 @@ export default function Landing({ onOpenStudio }) {
     setPrintNoted(true);
   };
 
-  // ── Reel achievements — full <Achievement> compositions, precomputed ONCE
-  // per REEL scene (task-20 brief §4, option (a) chosen — see task-20-report
-  // for the bundle-size justification: Achievement.jsx is ALREADY in the
-  // entry bundle today, pulled in by Studio.jsx/ShareView.jsx, which App.jsx
-  // imports statically — this app has no route-level code-splitting, so
-  // rendering it here adds zero bytes to what already ships). `useMemo` with
-  // an empty dep array — not per-scene-render — is what makes this "cheap":
-  // auto-advance (the setInterval in the effect above) just swaps an array
-  // index; it never re-runs the (moderately expensive: several recoloured
-  // SVG layers) achievement composition. These are the passive reel-viewing
-  // display only — NOT interactive (no tap-to-cycle) — the moment the
-  // visitor taps FIELD/STRUCTURE/SYMBOL/Surprise below, `takeControl()`
-  // flips `driving` true and the display swaps to the exact same live
-  // interactive <Shield> this hero has always used for editing, unchanged.
+  // ── Reel achievements — full <Achievement> compositions, memoized to avoid
+  // recompute when Landing re-renders for unrelated reasons (notably hero-input
+  // keystrokes). Each auto-advance tick (~5200ms, setInterval above) swaps to a
+  // different-keyed element, causing React to unmount and remount that scene's
+  // <Achievement> — the SVG composition and effects re-run each tick, but charge
+  // art is fetch-cached at module level (charges/recolor.js), so the cost is
+  // acceptable. Achievement.jsx is already in the entry bundle (pulled in by
+  // Studio.jsx/ShareView.jsx via App.jsx static import), so adding it here adds
+  // zero bytes to what ships. Passive reel-viewing display only — NOT
+  // interactive (no tap-to-cycle) — the moment the visitor taps
+  // FIELD/STRUCTURE/SYMBOL/Surprise below, `takeControl()` flips `driving`
+  // true and the display swaps to the exact same live interactive <Shield>
+  // this hero has always used for editing, unchanged.
   const reelAchievements = useMemo(
     () => REEL.map((s, i) => <Achievement key={i} design={s.design} width="100%" />),
     [],
