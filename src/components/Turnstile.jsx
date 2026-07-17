@@ -10,6 +10,12 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react
 const TEST_SITE_KEY = '1x00000000000000000000AA';
 const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY || (import.meta.env.DEV ? TEST_SITE_KEY : '');
 
+// Whether a widget will actually render. Callers use this to distinguish a
+// real failed challenge from the toxic half-config (server secret set, no
+// client site key → no widget → token always null → every generate would
+// otherwise look like a failed verification with nothing to complete).
+export const turnstileConfigured = !!SITE_KEY;
+
 let scriptPromise;
 function loadScript() {
   if (scriptPromise) return scriptPromise;

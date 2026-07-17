@@ -51,3 +51,26 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=blazon --branch=master
+
+      - name: Post-deploy smoke — /api/health (toxic Turnstile half-config)
+        env:
+          HEALTH_URL: https://blazon.pages.dev/api/health
+          SITE_KEY_SET: ${{ vars.VITE_TURNSTILE_SITE_KEY != '' }}
+        run: |
+          health=$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")
+          echo "health: $health"
+          turnstile=$(echo "$health" | jq -r '.turnstile')
+
+          # Toxic direction: server secret set, no client site key at build time →
+          # no widget ever renders → every /api/generate returns failed_challenge
+          # with nothing for the user to complete. Fail the deploy.
+          if [ "$turnstile" = "true" ] && [ "$SITE_KEY_SET" = "false" ]; then
+            echo "::error::Toxic Turnstile half-config: TURNSTILE_SECRET_KEY is set on the Pages project but VITE_TURNSTILE_SITE_KEY was empty at build time — no widget renders client-side, so every /api/generate call returns failed_challenge with nothing for the user to complete."
+            exit 1
+          fi
+
+          # Reverse direction degrades safely today (challenge_unavailable →
+          # preset fallback) — warn only, don't fail.
+          if [ "$turnstile" = "false" ] && [ "$SITE_KEY_SET" = "true" ]; then
+            echo "::warning::Turnstile site key is set but TURNSTILE_SECRET_KEY is not — the widget renders but /api/generate fail-safes to challenge_unavailable (preset fallback). Degrades safely, but likely a config oversight worth fixing."
+          fi

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
-import Turnstile from './components/Turnstile.jsx';
+import Turnstile, { turnstileConfigured } from './components/Turnstile.jsx';
 import CreditsLink from './Credits.jsx';
 import { catalogKeys, humanize } from './charges/manifest.js';
 import { Swatch, Pill, LangToggle, Disclosure, SubLabel, HoverBtn } from './ui.jsx';
@@ -91,7 +91,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
         const e = await r.json().catch(() => ({}));
         // failed_challenge = bad/missing token → ask to retry the check;
         // challenge_unavailable (not configured) falls through to the preset demo.
-        if (e.error === 'failed_challenge') blocked = 'challenge';
+        // Toxic half-config (server secret set, no client site key): no widget
+        // ever rendered, so token is always null and failed_challenge is really
+        // an unavailable challenge, not something the user can complete.
+        if (e.error === 'failed_challenge' && turnstileConfigured) blocked = 'challenge';
       }
       // 503 / other → fall through to the canned-preset fallback
     } catch { /* network/offline → preset fallback */ }
