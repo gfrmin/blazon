@@ -16,6 +16,28 @@ const SHIELD_PATH =
 // from reality.
 export { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally };
 
+// Root <svg> a11y role/label selection (task-21 review round 1 — "nested
+// role=img collapses interactive zones" finding). `role="img"` is correct
+// for a STATIC shield: WAI-ARIA collapses its entire subtree into one leaf,
+// which is exactly right when there's nothing beneath it but decorative
+// paths. But when `interactive` is true (Landing's driving-mode hero), the
+// three zones below carry their own `role="button"`/`tabIndex`/`aria-label`
+// (see `zoneA11y` below) — collapsing them under `role="img"` hides that
+// from assistive tech even though they stay mouse- and keyboard-operable
+// (DOM-level/Playwright drives don't see the difference, which is how this
+// slipped through the original a11y sweep). `role="group"` is a plain,
+// non-collapsing container: it still gets a name via `aria-label`, but its
+// interactive descendants remain individually exposed. `ariaHidden` (the
+// achievement's inner escutcheon, whose OWN root <svg> already carries the
+// composition's single role="img"/aria-label) is unchanged either way — no
+// role, no label, just aria-hidden.
+export function rootA11y(interactive, ariaHidden) {
+  if (ariaHidden) return { role: undefined, labelSuffix: '' };
+  return interactive
+    ? { role: 'group', labelSuffix: ' — tap a part to change it' }
+    : { role: 'img', labelSuffix: '' };
+}
+
 // 5-point star points for a mullet.
 function starPoints(cx, cy, r) {
   const out = [];
@@ -228,12 +250,14 @@ export default function Shield({
     return st;
   };
 
+  const { role: rootRole, labelSuffix } = rootA11y(interactive, ariaHidden);
+
   return (
     <svg
       viewBox="0 0 200 240"
       width={width}
-      role={ariaHidden ? undefined : 'img'}
-      aria-label={ariaHidden ? undefined : blazon(design, 'formal')}
+      role={rootRole}
+      aria-label={ariaHidden ? undefined : `${blazon(design, 'formal')}${labelSuffix}`}
       aria-hidden={ariaHidden || undefined}
       style={{ display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }}
     >

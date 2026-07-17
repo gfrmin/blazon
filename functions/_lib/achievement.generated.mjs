@@ -814,6 +814,10 @@ function canRenderLocally(design) {
 // src/Shield.jsx
 import { jsx, jsxs } from "react/jsx-runtime";
 var SHIELD_PATH = "M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z";
+function rootA11y(interactive, ariaHidden) {
+  if (ariaHidden) return { role: void 0, labelSuffix: "" };
+  return interactive ? { role: "group", labelSuffix: " \u2014 tap a part to change it" } : { role: "img", labelSuffix: "" };
+}
 function starPoints(cx, cy, r) {
   const out = [];
   for (let i = 0; i < 10; i++) {
@@ -973,13 +977,14 @@ function Shield({
     else st.animation = "chgpop .45s ease";
     return st;
   };
+  const { role: rootRole, labelSuffix } = rootA11y(interactive, ariaHidden);
   return /* @__PURE__ */ jsxs(
     "svg",
     {
       viewBox: "0 0 200 240",
       width,
-      role: ariaHidden ? void 0 : "img",
-      "aria-label": ariaHidden ? void 0 : blazon(design, "formal"),
+      role: rootRole,
+      "aria-label": ariaHidden ? void 0 : `${blazon(design, "formal")}${labelSuffix}`,
       "aria-hidden": ariaHidden || void 0,
       style: { display: "block", filter: "drop-shadow(0 16px 34px rgba(0,0,0,.5))" },
       children: [
