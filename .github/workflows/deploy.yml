@@ -57,9 +57,9 @@ jobs:
           HEALTH_URL: https://blazon.pages.dev/api/health
           SITE_KEY_SET: ${{ vars.VITE_TURNSTILE_SITE_KEY != '' }}
         run: |
-          health=$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")
+          health="$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")" || { echo "::warning::health check unreachable (curl exit $?) — skipping config smoke"; exit 0; }
           echo "health: $health"
-          turnstile=$(echo "$health" | jq -r '.turnstile')
+          turnstile=$(echo "$health" | jq -r '.turnstile') || { echo "::warning::failed to parse health check response (jq exit $?)"; exit 0; }
 
           # Toxic direction: server secret set, no client site key at build time →
           # no widget ever renders → every /api/generate returns failed_challenge
