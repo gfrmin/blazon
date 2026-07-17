@@ -12,6 +12,7 @@ import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat } from './share/codec.js';
 import { track } from './analytics.js';
+import { raceWithTimeout } from './timeoutRace.js';
 import {
   TINCTURES, TINCTURE_ORDER, FURS, STAINS,
   DIVISION_ORDER, LINE_ORDER, ORDINARY_ORDER, SUBORDINARIES,
@@ -127,6 +128,20 @@ function ChapterRule({ label }) {
   );
 }
 
+// Generous but bounded wait for Turnstile's execute() (review round 1,
+// Finding 1). 25s is comfortably longer than any real interactive challenge
+// takes a human to solve (Cloudflare's own widget times out an unsolved
+// challenge well before this), so a legitimately-shown challenge is never
+// aborted mid-solve — but short enough that a widget which never fires ANY
+// of its four terminal callbacks (script failed to load / never initialized
+// — a real network-fault shape, not the already-handled "unconfigured" case,
+// which resolves null immediately) doesn't strand the user on "Designing…"
+// forever. Sentinel is a Symbol, not null/undefined — execute() legitimately
+// resolves null when Turnstile isn't configured, and that must stay
+// distinguishable from "timed out waiting for it".
+const TURNSTILE_TIMEOUT_MS = 25000;
+const TURNSTILE_TIMED_OUT = Symbol('turnstile-timed-out');
+
 const AUTOSAVE_KEY = 'blazon:current';
 // Read once on mount, then cleared — set by App.jsx's openStudio() before
 // navigate() (task-7 brief §2, `studio_opened`). Key must match App.jsx.
@@ -193,33 +208,57 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     // see components/Turnstile.jsx) and await its one-shot token before
     // POSTing. Not configured / not ready yet → resolves null, same fail-safe
     // as before (the server gate treats a missing token as unconfigured).
-    const tok = await (turnstileRef.current?.execute() ?? Promise.resolve(null));
+    //
+    // Raced against TURNSTILE_TIMEOUT_MS (review round 1, Finding 1): if the
+    // widget never fires any of its four terminal callbacks — a real
+    // network-fault shape (script failed to load / never initialized), not
+    // the already-handled "unconfigured" case above — the bare await used to
+    // hang forever, leaving `generating` stuck true with no route back to the
+    // preset fallback. A timeout is treated exactly like "the challenge
+    // subsystem is unavailable": skip the network round trip entirely (a
+    // token-less POST could otherwise come back as a bogus failed_challenge
+    // block) and fall straight through to the SAME preset-fallback tail every
+    // other unreachable-API case already uses below — no new notice, no new
+    // outcome, no new code path.
+    const tokenResult = await raceWithTimeout(
+      turnstileRef.current?.execute() ?? Promise.resolve(null),
+      TURNSTILE_TIMEOUT_MS,
+      TURNSTILE_TIMED_OUT,
+    );
+    const timedOut = tokenResult === TURNSTILE_TIMED_OUT;
+    const tok = timedOut ? null : tokenResult;
     let next = null;
     let blocked = null; // 'rate' | 'challenge' — an explicit gate, not a fallback case
-    try {
-      const r = await fetch('/api/generate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ description: desc, turnstileToken: tok }),
-      });
-      if (r.ok) {
-        const data = await r.json();
-        if (data && data.design && data.design.field) next = data.design;
-      } else if (r.status === 429) {
-        blocked = 'rate';
-      } else if (r.status === 403) {
-        const e = await r.json().catch(() => ({}));
-        // failed_challenge = bad/missing token → ask to retry the check;
-        // challenge_unavailable (not configured) falls through to the preset demo.
-        // Toxic half-config (server secret set, no client site key): no widget
-        // ever rendered, so token is always null and failed_challenge is really
-        // an unavailable challenge, not something the user can complete.
-        if (e.error === 'failed_challenge' && turnstileConfigured) blocked = 'challenge';
-      }
-      // 503 / other → fall through to the canned-preset fallback
-    } catch { /* network/offline → preset fallback */ }
+    if (!timedOut) {
+      try {
+        const r = await fetch('/api/generate', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ description: desc, turnstileToken: tok }),
+        });
+        if (r.ok) {
+          const data = await r.json();
+          if (data && data.design && data.design.field) next = data.design;
+        } else if (r.status === 429) {
+          blocked = 'rate';
+        } else if (r.status === 403) {
+          const e = await r.json().catch(() => ({}));
+          // failed_challenge = bad/missing token → ask to retry the check;
+          // challenge_unavailable (not configured) falls through to the preset demo.
+          // Toxic half-config (server secret set, no client site key): no widget
+          // ever rendered, so token is always null and failed_challenge is really
+          // an unavailable challenge, not something the user can complete.
+          if (e.error === 'failed_challenge' && turnstileConfigured) blocked = 'challenge';
+        }
+        // 503 / other → fall through to the canned-preset fallback
+      } catch { /* network/offline → preset fallback */ }
+    }
+    // (timedOut → next/blocked stay at their initial null, which the shared
+    // tail below already treats as "no AI design" → preset fallback.)
 
-    // Turnstile tokens are single-use — refresh for the next attempt.
+    // Turnstile tokens are single-use — refresh for the next attempt. Safe to
+    // call even after a timeout: reset() is a no-op if the widget never
+    // finished rendering (see components/Turnstile.jsx).
     turnstileRef.current?.reset();
 
     if (blocked) {
@@ -356,9 +395,11 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   }, [initialDesign]);
 
   // Fire the queued ?desc= auto-generation once `desc` has actually settled
-  // to the query value — generate() reads `desc`/`token` via closure, so
-  // this needs a render past the setDesc above to see the right text; same
-  // path a manual submit uses (Turnstile handling, notices, fallback).
+  // to the query value — generate() reads `desc` via closure and awaits
+  // turnstileRef.current.execute() itself (no `token` state — Task 15
+  // removed it), so this needs a render past the setDesc above to see the
+  // right text; same path a manual submit uses (Turnstile handling, notices,
+  // fallback).
   useEffect(() => {
     if (!autoGenPending) return;
     setAutoGenPending(false);
@@ -620,7 +661,14 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
                 ))}
               </div>
               <Turnstile ref={turnstileRef} />
-              <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
+              {/* disabled={generating} (review round 1, Finding 1) — not just styled-disabled: the
+                  describe-submit path now awaits a Turnstile round trip (raced against a
+                  timeout, see TURNSTILE_TIMEOUT_MS above) before it can clear `generating`,
+                  so a merely-styled-disabled button left a re-submit route open during any
+                  slow/stuck stretch. generate() itself also short-circuits on `generating`
+                  (belt-and-braces), but a real `disabled` is what actually stops the click/
+                  keyboard-Enter from reaching onClick at all. */}
+              <button onClick={generate} disabled={generating} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
                   {genNotice === 'rate'
