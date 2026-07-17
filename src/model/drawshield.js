@@ -13,13 +13,23 @@
 // ─────────────────────────────────────────────────────────────────────────
 
 import { blazon } from './blazon.js';
+import { stripAchievement } from './achievement.js';
 
 // Public DrawShield API (GET). Repoint here when self-hosting.
 const ENDPOINT = 'https://drawshield.net/include/drawshield.php';
 
-/** A DrawShield-compatible blazon string for `d` (a Coat AST or the legacy object). */
+/**
+ * A DrawShield-compatible blazon string for `d` (a Coat AST or the legacy object).
+ *
+ * Achievement furniture is ALWAYS rendered locally (Achievement.jsx) and NEVER
+ * sent to the real DrawShield API — `blazon(d,'formal')` appends achievement
+ * clauses ("Crest: …", "Supporters: …") after the escutcheon sentence, which are
+ * plain-English-labelled prose, not DrawShield blazon grammar. Strip the
+ * achievement first so a design with an out-of-vocab escutcheon AND an
+ * achievement still sends a SHIELD-ONLY blazon to the fallback API.
+ */
 export function toDrawShieldBlazon(d) {
-  return blazon(d, 'formal');
+  return blazon(stripAchievement(d), 'formal');
 }
 
 /**
