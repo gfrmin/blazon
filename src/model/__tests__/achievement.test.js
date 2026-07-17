@@ -7,6 +7,7 @@ import {
   hasAchievement, liveryTinctures, withDefaultAchievement, stripAchievement,
 } from '../achievement.js';
 import { ACHIEVEMENT_ART } from '../../achievement-art/manifest.js';
+import { hasArt } from '../../charges/manifest.js';
 
 // ── HELMETS: vendored-rank reconciliation (Task 8 vendored 5, not 4) ──
 
@@ -144,6 +145,54 @@ test('crest echo: coat with only an ordinary → crest is the lion-rampant fallb
   assert.equal(filled.achievement.crest.object.key, 'lion');
   assert.equal(filled.achievement.crest.object.attitude, 'rampant');
   assert.equal(filled.achievement.crest.tincture, 'Or'); // fixed fallback, independent of the fess's Gules
+});
+
+test('crest echo: principal charge has NO vendored art (mullet) → crest is the lion fallback, not a blank mullet', () => {
+  const c = coat({ tincture: 'Azure' }, [
+    { role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'mullet' } },
+  ]);
+  const filled = withDefaultAchievement(c);
+  assert.equal(filled.achievement.crest.object.key, 'lion');
+  assert.equal(filled.achievement.crest.object.attitude, 'rampant');
+  assert.equal(filled.achievement.crest.tincture, 'Or');
+});
+
+test('crest echo: principal charge HAS vendored art (eagle) → crest still echoes it (unchanged behaviour)', () => {
+  const c = coat({ tincture: 'Azure' }, [
+    { role: 'primary', number: 1, tincture: 'Argent', object: { kind: 'charge', key: 'eagle', attitude: 'displayed' } },
+  ]);
+  const filled = withDefaultAchievement(c);
+  assert.equal(filled.achievement.crest.object.key, 'eagle');
+  assert.equal(filled.achievement.crest.object.attitude, 'displayed');
+  assert.equal(filled.achievement.crest.tincture, 'Argent');
+});
+
+test('withDefaultAchievement stays idempotent when the crest falls back for an artless principal charge', () => {
+  const base = coat({ tincture: 'Azure' }, [
+    { role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'mullet' } },
+  ]);
+  const once = withDefaultAchievement(base);
+  const twice = withDefaultAchievement(once);
+  assert.deepEqual(twice, once);
+});
+
+test('withDefaultAchievement stays idempotent when the crest echoes an art-bearing principal charge', () => {
+  const base = coat({ tincture: 'Azure' }, [
+    { role: 'primary', number: 1, tincture: 'Argent', object: { kind: 'charge', key: 'eagle', attitude: 'displayed' } },
+  ]);
+  const once = withDefaultAchievement(base);
+  const twice = withDefaultAchievement(once);
+  assert.deepEqual(twice, once);
+});
+
+// ── hasArt (the SAME predicate the renderer uses — Achievement.jsx/Shield.jsx) ──
+
+test('hasArt: known-art charge key is true (sanity: same predicate defaultCrest now reuses)', () => {
+  assert.equal(hasArt('lion', 'rampant'), true);
+});
+
+test('hasArt: known artless/geometric charge key is false (sanity: same predicate defaultCrest now reuses)', () => {
+  assert.equal(hasArt('mullet'), false);
 });
 
 // ── Supporters ──

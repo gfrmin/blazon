@@ -16,6 +16,7 @@
 
 import { isMetal, isColour } from './tinctures.js';
 import { CHARGES } from './charges.js';
+import { hasArt } from '../charges/manifest.js';
 
 // Helmet ranks. Task 8 vendored art for exactly five DrawShield helmet
 // variants (src/achievement-art/manifest.js HELMETS, `rank` field) — this
@@ -169,9 +170,23 @@ const principalCharge = (c) => (c.charges || []).find(isMobileGroup) ?? null;
 /** The coat's principal beast charge group (first `kind:'charge'` beast), or null. */
 const principalBeast = (c) => (c.charges || []).find(isBeastGroup) ?? null;
 
+/**
+ * A crest can only echo the coat's principal charge if that charge actually
+ * has vendored art to draw — otherwise it renders BLANK above the torse (a
+ * bare geometric charge like `mullet` has no crest/supporter artwork at all).
+ * Uses the exact same art-availability check the renderer itself uses
+ * (`hasArt`, from `src/charges/manifest.js` — the same predicate
+ * `Achievement.jsx`'s crest/supporter art and `Shield.jsx`'s `VendoredCharge`
+ * both gate on), so this stays in lockstep with what can actually be drawn.
+ */
+const hasVendoredArt = (g) => !!g && hasArt(g.object.key, g.object.attitude);
+
 function defaultCrest(c) {
   const g = principalCharge(c);
-  if (g) return { role: g.role, number: 1, tincture: g.tincture, object: g.object };
+  if (g && hasVendoredArt(g)) return { role: g.role, number: 1, tincture: g.tincture, object: g.object };
+  // No principal charge, or one with no vendored art (e.g. a geometric
+  // charge) — fall back to the same lion rampant Or `defaultSupporters`
+  // already uses, rather than drawing a charge that has no artwork.
   return { role: 'primary', number: 1, tincture: 'Or', object: LION_RAMPANT_OR_OBJECT };
 }
 

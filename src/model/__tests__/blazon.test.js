@@ -135,10 +135,15 @@ test('regression lock: divided-field coat with no achievement is unaffected', ()
 // ── Full default achievement (crest+torse, mantling, matched supporters; esquire helm hidden) ──
 const fullAchievement = withDefaultAchievement(heraldShield);
 
+// NOTE: heraldShield's principal charge is a mullet, which has no vendored
+// crest art (src/charges/manifest.js's `hasArt`) — `defaultCrest` therefore
+// falls back to the lion-rampant-Or figure (matching `defaultSupporters`'s
+// own no-art fallback) instead of echoing a charge it can't actually draw
+// above the torse. See src/model/achievement.js's `defaultCrest`.
 test('formal: full default achievement — crest with torse, mantling, matched supporters; esquire helm NOT emitted', () => {
   assert.equal(
     blazon(fullAchievement, 'formal'),
-    'Azure, a fess Or between three mullets Argent. Crest: on a torse Or and Azure, a mullet Argent. '
+    'Azure, a fess Or between three mullets Argent. Crest: on a torse Or and Azure, a lion rampant Or. '
       + 'Mantling: Azure doubled Or. Supporters: two lions rampant Or.',
   );
   assert.doesNotMatch(blazon(fullAchievement, 'formal'), /Helm:/);
@@ -148,7 +153,7 @@ test('plain: full default achievement — same set, herald-plain prose', () => {
   assert.equal(
     blazon(fullAchievement, 'plain'),
     'A blue shield with a gold fess, and three silver stars. '
-      + 'Above the shield, a silver star stands on a twisted wreath of gold and blue. '
+      + 'Above the shield, a gold lion rearing up stands on a twisted wreath of gold and blue. '
       + 'The mantling — the cloth behind the shield — is blue lined with gold. '
       + 'Two gold lions hold the shield up.',
   );
@@ -157,14 +162,14 @@ test('plain: full default achievement — same set, herald-plain prose', () => {
 // ── Crest: with torse vs without ──
 test('formal: crest only, no torse — just the crest group, no stray punctuation', () => {
   const c = { ...fullAchievement, achievement: { crest: fullAchievement.achievement.crest } };
-  assert.equal(blazon(c, 'formal'), 'Azure, a fess Or between three mullets Argent. Crest: a mullet Argent.');
+  assert.equal(blazon(c, 'formal'), 'Azure, a fess Or between three mullets Argent. Crest: a lion rampant Or.');
 });
 
 test('plain: crest only, no torse — no wreath clause', () => {
   const c = { ...fullAchievement, achievement: { crest: fullAchievement.achievement.crest } };
   assert.equal(
     blazon(c, 'plain'),
-    'A blue shield with a gold fess, and three silver stars. Above the shield, a silver star stands.',
+    'A blue shield with a gold fess, and three silver stars. Above the shield, a gold lion rearing up stands.',
   );
 });
 
@@ -213,7 +218,7 @@ test('formal: compartment clause appended when present', () => {
   };
   assert.equal(
     blazon(c, 'formal'),
-    'Azure, a fess Or between three mullets Argent. Crest: on a torse Or and Azure, a mullet Argent. '
+    'Azure, a fess Or between three mullets Argent. Crest: on a torse Or and Azure, a lion rampant Or. '
       + 'Mantling: Azure doubled Or. Supporters: two lions rampant Or. Compartment: a mount Vert.',
   );
 });
