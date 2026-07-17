@@ -72,6 +72,20 @@
 // .superpowers/sdd/briefs/task-7-report.md's "Fix (review round 2 — /flags
 // egress)" section for the full trace, the live-verification payloads, and
 // why `advanced_disable_flags` was rejected as the closure mechanism.
+//
+// Privacy (review round 3 — attribution preservation): closure (1) above,
+// as originally shipped, unconditionally seeded `$initial_person_info` from
+// THE CURRENT PAGE on every `init()` call — but `init()` runs once per page
+// load, so a returning visitor's second, direct-navigation page load
+// clobbered their first visit's real (e.g. external-referrer) attribution
+// with `$direct` and the second page's own URL, defeating `_sanitizeReferrer`'s
+// own stated intent of preserving external referrers as real attribution
+// data. Fixed by reading whatever is already stored first: if present, that
+// stored value is re-sanitized IN PLACE (self-healing a pre-fix-poisoned
+// browser without touching its referrer); only a genuinely fresh profile,
+// or one holding a malformed stored value, seeds from the current page. See
+// .superpowers/sdd/briefs/task-7-report.md's "Fix (review round 3 —
+// attribution preservation)" section for the full trace and live evidence.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { onNavigate } from './router.js';
@@ -514,6 +528,26 @@ async function init() {
     // real dirty value before this fix shipped gets cleaned on its very
     // next page load too, not just protected going forward.
     //
+    // Round 3 correction: init() runs on EVERY page load, so "the current
+    // page" is a different URL on every visit — seeding unconditionally
+    // from window.location.href/document.referrer (as this used to) meant
+    // visit 2's pre-seed clobbered visit 1's already-clean, already-stored
+    // {r, u} with visit 2's own ($direct, current-URL) pair, destroying
+    // real first-visit attribution (e.g. an external google.com referrer)
+    // the moment the visitor's second page load wasn't a fresh arrival. So:
+    // if a value is ALREADY stored (from an earlier page load — persisted
+    // via localStorage, exactly the store `register_once` itself would
+    // otherwise write to once and never touch again), re-sanitize THAT
+    // stored value in place — reusing _sanitizedInitialPersonInfo's
+    // (href, referrer, origin) signature against `existing.u`/`existing.r`
+    // instead of the live location — so a pre-fix-poisoned browser still
+    // self-heals (the stored URL's hash/query/`/a/` payload gets stripped)
+    // while a legitimately-attributed browser keeps its real first-visit
+    // referrer forever, not just for one page load. Only a genuinely fresh
+    // profile (nothing stored yet) or a malformed stored value (not an
+    // object, or an object with neither `u` nor `r` as a string) falls back
+    // to seeding from the current page.
+    //
     // This reaches into a documented-but-internal posthog-js seam (there's
     // no public API for "seed my initial person info"), so it's guarded
     // like untrusted input: feature-detected, try/catched, and pinned by a
@@ -523,13 +557,14 @@ async function init() {
     // changes shape in a future posthog-js version.
     try {
       if (ph.persistence && typeof ph.persistence.register === 'function') {
-        ph.persistence.register({
-          [INITIAL_PERSON_INFO_KEY]: _sanitizedInitialPersonInfo(
-            window.location.href,
-            document.referrer,
-            window.location.origin
-          ),
-        });
+        const existing = ph.persistence.props?.[INITIAL_PERSON_INFO_KEY];
+        const existingIsWellFormed =
+          existing && typeof existing === 'object' &&
+          (typeof existing.u === 'string' || typeof existing.r === 'string');
+        const seed = existingIsWellFormed
+          ? _sanitizedInitialPersonInfo(existing.u, existing.r, window.location.origin)
+          : _sanitizedInitialPersonInfo(window.location.href, document.referrer, window.location.origin);
+        ph.persistence.register({ [INITIAL_PERSON_INFO_KEY]: seed });
       }
     } catch {
       // Best-effort: if posthog-js's persistence shape changed underneath

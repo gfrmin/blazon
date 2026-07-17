@@ -822,6 +822,98 @@ test('pre-seed pin: after the pre-seed for a motto-bearing /studio#<hash> URL, t
   assert.deepEqual(seed, { r: '$direct', u: 'https://blazon.example/studio' });
 });
 
+// ── round 3: attribution preservation — the pre-seed must clean an EXISTING
+//    stored value IN PLACE, not replace it with the current page's ─────────
+//
+// Round 2's pre-seed unconditionally seeded $initial_person_info from
+// location.href/document.referrer on every init() call. init() runs once
+// per page load, so a returning visitor's second (direct) page load
+// clobbered their first visit's real external-referrer attribution with
+// '$direct' and the second page's own URL — defeating _sanitizeReferrer's
+// own stated intent of preserving external referrers as real attribution
+// data. This helper mirrors init()'s exact round-3 branching
+// (src/analytics.js's pre-seed try block) against a REAL PostHogPersistence
+// instance, same style as the pin tests above, so the polarity is proven
+// against the actual persistence contract, not a re-implementation of it.
+function preSeed(persistence, currentHref, currentReferrer, origin) {
+  const existing = persistence.props?.[INITIAL_PERSON_INFO_KEY];
+  const existingIsWellFormed =
+    existing && typeof existing === 'object' &&
+    (typeof existing.u === 'string' || typeof existing.r === 'string');
+  const seed = existingIsWellFormed
+    ? _sanitizedInitialPersonInfo(existing.u, existing.r, origin)
+    : _sanitizedInitialPersonInfo(currentHref, currentReferrer, origin);
+  persistence.register({ [INITIAL_PERSON_INFO_KEY]: seed });
+  return seed;
+}
+
+test('round 3 pre-seed pin: a DIRTY stored value (visit 1, external referrer) is cleaned IN PLACE on visit 2 — NOT replaced by the current page\'s $direct', async () => {
+  const { PostHogPersistence } = await import('posthog-js/lib/src/posthog-persistence.js');
+  // Unique token per test — posthog-js's 'memory' storage backend
+  // (storage.js's `memoryStorage`) is a MODULE-LEVEL singleton object keyed
+  // by `'ph_' + token`, not per-instance, so reusing a token across tests in
+  // this same process would leak one test's persisted state into the next.
+  const persistence = new PostHogPersistence({
+    token: 'pin-test-token-r3-dirty', persistence: 'memory', persistence_name: '',
+    disable_persistence: false, mask_personal_data_properties: false,
+    custom_personal_data_properties: [], disable_capture_url_hashes: false,
+  });
+
+  // Visit 1: arrived from google.com, and (whether from a pre-fix-poisoned
+  // browser or an in-flight share-arrival race) the stored `u` still carries
+  // a motto-bearing hash — exactly the "dirty" shape the self-heal exists for.
+  persistence.register({
+    [INITIAL_PERSON_INFO_KEY]: { r: 'https://google.com/', u: 'http://localhost/studio#cSECOND_VISIT_MOTTO_HASH' },
+  });
+
+  // Visit 2 (next day): direct load of /studio — no referrer at all. The
+  // OLD (round-2) pre-seed would seed straight from THIS page and destroy
+  // the google.com attribution; the round-3 pre-seed must not.
+  const seed = preSeed(persistence, 'http://localhost/studio', '', 'http://localhost');
+
+  assert.equal(seed.r, 'https://google.com/', 'visit-1 external referrer must survive visit 2, not become $direct');
+  assert.ok(!seed.u.includes('#'), 'the stored u must still be cleaned of its hash');
+  assert.ok(!seed.u.includes('MOTTO'));
+  assert.deepEqual(seed, { r: 'https://google.com/', u: 'http://localhost/studio' });
+  // And the persisted value itself (not just the return value) reflects it.
+  assert.deepEqual(persistence.props[INITIAL_PERSON_INFO_KEY], seed);
+});
+
+test('round 3 pre-seed pin: a fresh profile (nothing stored yet) still seeds from the current page', async () => {
+  const { PostHogPersistence } = await import('posthog-js/lib/src/posthog-persistence.js');
+  const persistence = new PostHogPersistence({
+    token: 'pin-test-token-r3-fresh', persistence: 'memory', persistence_name: '',
+    disable_persistence: false, mask_personal_data_properties: false,
+    custom_personal_data_properties: [], disable_capture_url_hashes: false,
+  });
+
+  const seed = preSeed(persistence, 'https://blazon.example/studio#cFIRST_VISIT_MOTTO', 'https://www.google.com/', ORIGIN);
+
+  assert.deepEqual(seed, { r: 'https://www.google.com/', u: 'https://blazon.example/studio' });
+  assert.ok(!JSON.stringify(seed).includes('MOTTO'));
+});
+
+test('round 3 pre-seed pin: a malformed stored value (not an object, or missing both u and r) falls back to the current-page seed', async () => {
+  const { PostHogPersistence } = await import('posthog-js/lib/src/posthog-persistence.js');
+
+  for (const [i, malformed] of ['not-an-object', {}, { foo: 'bar' }].entries()) {
+    const persistence = new PostHogPersistence({
+      token: `pin-test-token-r3-malformed-${i}`, persistence: 'memory', persistence_name: '',
+      disable_persistence: false, mask_personal_data_properties: false,
+      custom_personal_data_properties: [], disable_capture_url_hashes: false,
+    });
+    persistence.register({ [INITIAL_PERSON_INFO_KEY]: malformed });
+
+    const seed = preSeed(persistence, 'https://blazon.example/studio', 'https://www.google.com/', ORIGIN);
+
+    assert.deepEqual(
+      seed,
+      { r: 'https://www.google.com/', u: 'https://blazon.example/studio' },
+      `malformed existing value ${JSON.stringify(malformed)} should not have been trusted as attribution`
+    );
+  }
+});
+
 // track()/setSuperProps() themselves: under node --test `mode` is always
 // 'no_key' (see header note), so both are no-ops here beyond an optional
 // DEV console.debug (DEV is also false under plain node — no Vite define).
