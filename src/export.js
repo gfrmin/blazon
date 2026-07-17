@@ -76,7 +76,9 @@ function downloadBlob(blob, filename) {
   triggerDownload(URL.createObjectURL(blob), filename, true);
 }
 
-// Rasterise an SVG string to a PNG Blob at `widthPx` (≈300dpi for a ~3in shield).
+// Rasterise an SVG string to a PNG Blob at `widthPx` — 1000px today, the
+// free/screen-resolution tier served to everyone. The print-resolution
+// (~300dpi) split for the paid tier lands in M4.
 function svgToPNG(svgString, widthPx = 1000) {
   return new Promise((resolve, reject) => {
     const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgDoc(svgString))}`;

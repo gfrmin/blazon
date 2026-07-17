@@ -15,10 +15,18 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
   const panelRef = useRef(null);
   const previouslyFocused = useRef(null);
   const [printNoted, setPrintNoted] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState(false);
+  // Synchronous in-flight guard — state alone can lag a fast double-click by
+  // a render; this ref blocks the second call the instant the first starts.
+  const inFlight = useRef(false);
 
   useEffect(() => {
     if (!open) return undefined;
     setPrintNoted(false);
+    setDownloadError(false);
+    setDownloading(false);
+    inFlight.current = false;
     previouslyFocused.current = document.activeElement;
     track('download_opened', { surface });
 
@@ -38,11 +46,27 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
 
   if (!open) return null;
 
-  const downloadFree = () => {
+  const downloadFree = async () => {
+    if (inFlight.current) return; // guard against double-clicks firing two downloads
+    inFlight.current = true;
+    setDownloading(true);
+    setDownloadError(false);
     track('download_free', { format: 'png' });
-    // Export is code-split (pulls in react-dom/server) — load it on click only.
-    import('../export.js').then((m) => m.downloadPNG(design));
-    onClose();
+    try {
+      // Export is code-split (pulls in react-dom/server) — load it on click only.
+      const m = await import('../export.js');
+      await m.downloadPNG(design);
+      onClose();
+    } catch {
+      // svgToPNG / the chunk fetch can reject (toBlob failure, SVG image load
+      // failure, network). Keep the dialog open and tell the visitor plainly
+      // rather than closing on a silent failure — this is the only download
+      // path there is right now.
+      track('download_error', { format: 'png' });
+      setDownloadError(true);
+      inFlight.current = false;
+      setDownloading(false);
+    }
   };
 
   const noteInterest = () => {
@@ -73,11 +97,23 @@ export default function DownloadDialog({ open, onClose, design, surface }) {
         <div style={{ background: C.ink, border: `1px solid ${C.lineMid}`, borderRadius: 10, padding: '16px 18px', marginBottom: 12 }}>
           <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: C.cream, marginBottom: 6 }}>Free — share it</div>
           <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.5, margin: '0 0 14px' }}>Share it — a fine image for screens, with a small mark of its making.</p>
-          <HoverBtn onClick={downloadFree} style={{ ...goldBtn, padding: '11px 20px', fontSize: 14, width: '100%' }} hoverStyle={goldBtnHover}>Download PNG</HoverBtn>
+          <HoverBtn
+            onClick={downloadFree}
+            disabled={downloading}
+            style={{ ...goldBtn, padding: '11px 20px', fontSize: 14, width: '100%', opacity: downloading ? .6 : 1, cursor: downloading ? 'default' : 'pointer' }}
+            hoverStyle={downloading ? {} : goldBtnHover}
+          >
+            {downloading ? 'Downloading…' : 'Download PNG'}
+          </HoverBtn>
+          {downloadError && (
+            <p role="alert" style={{ fontSize: 12.5, color: '#F0CFCF', lineHeight: 1.4, margin: '10px 0 0' }}>That didn't download — try once more.</p>
+          )}
         </div>
 
-        {/* Paid — inert copy, no price button, until Stripe lands (task-6 brief §2) */}
-        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16, opacity: .55 }}>
+        {/* Paid — inert copy, no price button, until Stripe lands (task-6 brief §2).
+            Inactive read comes from the muted theme tokens alone (no container
+            opacity — that composed with C.muted2 text to ~2:1, under the 3:1 floor). */}
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, padding: '16px 18px', marginBottom: 16 }}>
           <div style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 17, color: C.muted, marginBottom: 6 }}>Own it — print files</div>
           <p style={{ fontSize: 13, color: C.muted2, lineHeight: 1.5, margin: 0 }}>Print-resolution image and vector artwork, clean and yours forever. Coming very soon.</p>
           {/* TODO(M4): $19 checkout */}
