@@ -6,11 +6,21 @@
 // `useCharge`'s fetch-on-mount (src/charges/recolor.js) never runs under
 // `renderToStaticMarkup` (no browser tick, no useEffect), so every R2-hosted
 // charge file the design actually needs must be resolved BEFORE rendering
-// and handed in as one `artCache` map (`{ [file]: {viewBox, inner} }` — the
-// exact shape `resolveCharge`/`useCharge` already produce, and the SAME
-// shape Shield.jsx's own `chargeArt` prop consumes). Mirrors src/export.js's
-// `resolveDesignCharges` for the shield's own charge, extended to the
-// achievement's crest + both supporters.
+// and handed in as one `artCache` map, keyed by `artKey(file, hex)` — the
+// tincture-resolved composite identity (src/charges/recolor.js), NOT file
+// alone. `resolveCharge` bakes `hex` into `art.inner`, so a design that uses
+// the same charge file in more than one slot with DIFFERENT tinctures (an Or
+// lion on the shield, an Argent lion crest — same file, different hex) needs
+// two distinct cache entries; keying by file alone let the second resolve
+// silently overwrite the first, so every slot sharing that file rendered in
+// whichever tincture resolved last on the OG image (review round 1 finding —
+// on-screen was never affected, since the browser's `useCharge(file,hex)`
+// recolours per-slot regardless of this cache). Otherwise this is the exact
+// shape `resolveCharge`/`useCharge` already produce, and the SAME shape
+// Shield.jsx's own `chargeArt` prop consumes (Shield.jsx builds the same
+// `artKey` on its read side). Mirrors src/export.js's `resolveDesignCharges`
+// for the shield's own charge, extended to the achievement's crest + both
+// supporters.
 //
 // This walks the design EXACTLY as `<Achievement backfill={false}>` will —
 // no `withDefaultAchievement` here. The og:image Function must render
@@ -24,7 +34,7 @@ import { normalize } from '../../src/model/achievement.js';
 import { chargeGroup } from '../../src/model/coat.js';
 import { hasArt, artFile } from '../../src/charges/manifest.js';
 import { tinctureHex } from '../../src/model/tinctures.js';
-import { resolveCharge } from '../../src/charges/recolor.js';
+import { resolveCharge, artKey } from '../../src/charges/recolor.js';
 
 /**
  * Every (file, hex) pair the design actually needs art for, matching
@@ -64,7 +74,8 @@ function wantedArt(coat) {
  * both supporters) need, pre-fetched and recoloured — ready to pass straight
  * through as `<Achievement artCache={…}>`.
  * @param {import('../../src/model/types.js').Coat|object} coatInput
- * @returns {Promise<Record<string, {viewBox: string, inner: string}>>}
+ * @returns {Promise<Record<string, {viewBox: string, inner: string}>>} keyed
+ *   by `artKey(file, hex)`, not `file` alone — see the file-header note.
  */
 export async function resolveAchievementArt(coatInput) {
   const coat = normalize(coatInput) || coatInput;
@@ -74,7 +85,7 @@ export async function resolveAchievementArt(coatInput) {
   await Promise.all(
     wants.map(async ({ file, hex }) => {
       const art = await resolveCharge(file, hex);
-      if (art) cache[file] = art;
+      if (art) cache[artKey(file, hex)] = art;
     }),
   );
   return cache;

@@ -761,6 +761,7 @@ function viewBoxOf(svg) {
 
 // src/charges/recolor.js
 var R2_BASE = "https://pub-b430701fd019477e916a2a94549058cf.r2.dev/charges";
+var artKey = (file, hex) => `${file}::${hex}`;
 var cache = /* @__PURE__ */ new Map();
 function fetchCharge(path) {
   if (!cache.has(path)) {
@@ -1011,7 +1012,7 @@ function Shield({
                     cx: p[0],
                     cy: p[1],
                     size: chargeSize(ch.qty || 1),
-                    resolved: chargeArt ? chargeArt[artFile(ch.type, ch.attitude)] : null
+                    resolved: chargeArt ? chargeArt[artKey(artFile(ch.type, ch.attitude), tinctureHex(ch.tincture))] : null
                   },
                   i
                 ) : null
@@ -1427,7 +1428,7 @@ var COMPARTMENT_META = findByKey("compartments", "pedestal");
 var MOTTO_META = findByKey("motto", "scroll-below");
 var FALLBACK_LIVERY = { colourHex: tinctureHex("Gules"), metalHex: tinctureHex("Argent") };
 function useResolvedArt(file, hex, artCache) {
-  const cached = artCache && file ? artCache[file] : null;
+  const cached = artCache && file ? artCache[artKey(file, hex)] : null;
   const fetched = useCharge(cached ? null : file, hex);
   return cached || fetched;
 }

@@ -1,6 +1,6 @@
 import React, { useId } from 'react';
 import Shield, { canRenderLocally } from './Shield.jsx';
-import { useCharge } from './charges/recolor.js';
+import { useCharge, artKey } from './charges/recolor.js';
 import { hasArt, artFile } from './charges/manifest.js';
 import { tinctureHex, blazon, drawShieldURL, withDefaultAchievement, normalize } from './heraldry.js';
 import { findByKey } from './achievement-art/manifest.js';
@@ -41,21 +41,31 @@ const FALLBACK_LIVERY = { colourHex: tinctureHex('Gules'), metalHex: tinctureHex
 // `useCharge` (src/charges/recolor.js) fetches R2 charge art client-side via
 // `fetch` + `useEffect` — that never resolves under `renderToStaticMarkup`
 // (no browser, no network turn). `artCache` is the injectable escape hatch:
-// a plain `{ [file]: {viewBox, inner} }` map (the exact shape `resolveCharge`/
-// `useCharge` already produce — the SAME shape Shield.jsx's own `chargeArt`
-// prop uses, so `artCache` can be passed straight through to `<Shield
-// chargeArt={artCache}>` for the shield slot with no adapter). When an entry
-// is present for a file, `useResolvedArt` skips the hook's fetch entirely
-// (passes `null` as the file, mirroring Shield.jsx's own `VendoredCharge`) and
-// returns the pre-resolved art synchronously — safe to call during SSR.
-// Server callers (Task 17) must pre-resolve every R2 file the achievement's
-// crest + supporters need (via `resolveCharge`) and pass them all in one
-// `artCache` object; vendored furniture (helm/torse/mantling/motto/
+// a plain `{ [artKey(file,hex)]: {viewBox, inner} }` map — keyed by the
+// TINCTURE-RESOLVED identity (`artKey`, src/charges/recolor.js), not `file`
+// alone, because `resolveCharge`/`recolorCharge` bakes `hex` into
+// `art.inner`: the same file used in two slots with different tinctures
+// (an Or lion on the shield, an Argent lion crest) needs two cache entries,
+// not one (review round 1 finding — file-only keying silently collapsed
+// same-file/different-tincture slots to whichever resolved last on the OG
+// image; on-screen was always correct because `useCharge(file,hex)` recolours
+// per-slot regardless of this cache). This is otherwise the exact shape
+// `resolveCharge`/`useCharge` already produce — the SAME shape Shield.jsx's
+// own `chargeArt` prop uses (Shield.jsx builds the identical `artKey` on its
+// own read side), so `artCache` can be passed straight through to `<Shield
+// chargeArt={artCache}>` for the shield slot with no adapter. When an entry
+// is present for a file+hex pair, `useResolvedArt` skips the hook's fetch
+// entirely (passes `null` as the file, mirroring Shield.jsx's own
+// `VendoredCharge`) and returns the pre-resolved art synchronously — safe to
+// call during SSR. Server callers (Task 17) must pre-resolve every R2
+// file+hex pair the achievement's crest + supporters need (via
+// `resolveCharge`) and pass them all in one `artCache` object, keyed by
+// `artKey(file, hex)`; vendored furniture (helm/torse/mantling/motto/
 // compartment) needs no entry — it's always available via the static imports
 // above, no seam required.
 // ─────────────────────────────────────────────────────────────────────────
 function useResolvedArt(file, hex, artCache) {
-  const cached = artCache && file ? artCache[file] : null;
+  const cached = artCache && file ? artCache[artKey(file, hex)] : null;
   const fetched = useCharge(cached ? null : file, hex);
   return cached || fetched;
 }
@@ -93,8 +103,9 @@ function ArtCharge({ box, art, hex }) {
  *  - shieldSlot  optional override for the escutcheon slot — a React node
  *                drawn into the shield's 200×240 box INSTEAD of the default
  *                <Shield>/DrawShield-fallback logic (see `ssr` below).
- *  - artCache    optional `{ [file]: {viewBox, inner} }` of pre-resolved R2
- *                charge art (crest + supporters) — the SSR seam, see above.
+ *  - artCache    optional `{ [artKey(file,hex)]: {viewBox, inner} }` of
+ *                pre-resolved R2 charge art (crest + supporters) — the SSR
+ *                seam, see above. Keyed by file+hex composite, not file alone.
  *  - ssr         when true, the shield slot ALWAYS renders the local <Shield>
  *                (never the drawshield.net <foreignObject>/<img> fallback,
  *                which does not survive renderToStaticMarkup→resvg) — an

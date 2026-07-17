@@ -24,7 +24,7 @@ import { resolveAchievementArt } from '../../../_lib/achievementArt.js';
 import { OG_WIDTH, OG_HEIGHT } from '../../../_lib/ogImage.js';
 import { encodeCoat } from '../../../../src/share/codec.js';
 import { blazon } from '../../../../src/model/blazon.js';
-import { withDefaultAchievement, clearCrest } from '../../../../src/heraldry.js';
+import { withDefaultAchievement, clearCrest, tinctureHex } from '../../../../src/heraldry.js';
 import { R2_BASE } from '../../../../src/charges/recolor.js';
 
 const originalFetch = globalThis.fetch;
@@ -55,6 +55,25 @@ function fullDesign() {
   });
 }
 
+// A design with the SAME charge file (lion rampant) used in two slots with
+// DIFFERENT tinctures — the shield's own charge is Or, but the crest is
+// explicitly overridden to Argent (so withDefaultAchievement's own
+// echo-the-principal-charge default, which would coincide file+hex, is
+// bypassed). Supporters are left to default (Or, echoing the shield charge)
+// — this is the exact "same file, different tincture, different slots"
+// shape review round 1 flagged: a heraldic-common pattern (an Or lion on the
+// shield, an Argent lion crest) that file-only artCache keying collapsed to
+// one colour on the OG image only (on-screen was always correct).
+function twoTinctureLionDesign() {
+  return withDefaultAchievement({
+    field: { tincture: 'Azure' },
+    charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } }],
+    achievement: {
+      crest: { role: 'primary', number: 1, tincture: 'Argent', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } },
+    },
+  });
+}
+
 test('bad payload -> 302 redirect to / (never touches resvg/wasm)', async () => {
   const res = await onRequestGet({ request: request('/api/og/not-a-real-payload'), params: { payload: 'not-a-real-payload' } });
   assert.equal(res.status, 302);
@@ -73,6 +92,57 @@ test('resolveAchievementArt: prefetches the shield charge + crest + both (matche
   assert.match(files[0], /lion-rampant/);
   assert.equal(cache[files[0]].viewBox, '0 0 100 100');
   assert.ok(cache[files[0]].inner.includes('#')); // recoloured (hex fill), not the raw "red"
+});
+
+test('resolveAchievementArt: the SAME charge file used with DIFFERENT tinctures in different slots resolves to DISTINCT cache entries with DIFFERENT recoloured art (review round 1 — file-only keying collapsed these to one colour)', async () => {
+  stubR2Fetch();
+  const coat = twoTinctureLionDesign();
+  assert.equal(coat.charges[0].tincture, 'Or');
+  assert.equal(coat.achievement.crest.tincture, 'Argent');
+
+  const cache = await resolveAchievementArt(coat);
+  const keys = Object.keys(cache);
+  assert.ok(keys.every((k) => /lion-rampant/.test(k)), `expected every key to reference the lion-rampant file, got ${JSON.stringify(keys)}`);
+  // Two distinct file+hex entries for the SAME underlying file — proves the
+  // cache is keyed by the tincture-resolved composite identity (artKey),
+  // not file alone (which would collapse both tinctures into a single,
+  // last-write-wins entry — exactly the bug this locks against).
+  assert.equal(keys.length, 2, `expected 2 distinct file+hex cache entries (one per tincture), got ${keys.length}: ${JSON.stringify(keys)}`);
+
+  const orKey = keys.find((k) => k.endsWith(tinctureHex('Or')));
+  const argentKey = keys.find((k) => k.endsWith(tinctureHex('Argent')));
+  assert.ok(orKey, `expected an Or-tincture cache entry among ${JSON.stringify(keys)}`);
+  assert.ok(argentKey, `expected an Argent-tincture cache entry among ${JSON.stringify(keys)}`);
+  assert.notEqual(cache[orKey].inner, cache[argentKey].inner, 'the two tinctures must bake DIFFERENT colours into the recoloured markup');
+});
+
+test("renderAchievementSVG: the crest bakes its OWN tincture into the recoloured art, distinct from the shield charge's, even though both slots share the same charge file (review round 1 — the OG image must not collapse same-file/different-tincture slots to one colour)", async () => {
+  stubR2Fetch();
+  const coat = twoTinctureLionDesign();
+  const svg = await renderAchievementSVG(coat);
+
+  // Match the BAKED inner <path> fill specifically (recolorCharge writes the
+  // resolved hex directly onto the charge's own path — see
+  // src/charges/recolor-core.js). This is deliberately NOT a check of the
+  // wrapping <svg fill="…"> element ArtCharge/VendoredCharge always emit
+  // (src/Achievement.jsx, src/Shield.jsx) — that wrapper's fill is computed
+  // per-slot directly from the coat, so it's ALWAYS correct regardless of
+  // the artCache bug and would never catch this regression. The bug is
+  // specifically that the cached `art.inner` — and therefore this baked
+  // path fill — could be the WRONG slot's tincture.
+  const fakePathD = 'M10 10 L90 10 L90 90 L10 90 Z'; // FAKE_CHARGE_SVG's own single <path>'s d
+  const bakedFillRe = new RegExp(`<path fill="(#[0-9a-fA-F]+)" d="${escapeReg(fakePathD)}"`, 'g');
+  const bakedFills = new Set([...svg.matchAll(bakedFillRe)].map((m) => m[1]));
+
+  const orHex = tinctureHex('Or');
+  const argentHex = tinctureHex('Argent');
+  assert.ok(bakedFills.has(orHex), `expected the Or-tinctured shield charge/supporters to bake in ${orHex}, got ${JSON.stringify([...bakedFills])}`);
+  // The crest is explicitly Argent — a DIFFERENT tincture on the SAME charge
+  // file. Pre-fix, file-only artCache keying meant the crest's `art.inner`
+  // was whichever tincture resolved last for that shared file (in practice,
+  // Or — the shield/supporters' own tincture), so the baked Argent hex never
+  // appeared anywhere in the composed markup at all.
+  assert.ok(bakedFills.has(argentHex), `expected the Argent-tinctured crest to bake in its OWN hex (${argentHex}), got ${JSON.stringify([...bakedFills])}`);
 });
 
 test('resolveAchievementArt honours backfill=false semantics: a design with NO achievement key needs no art', async () => {
@@ -123,12 +193,40 @@ test('buildOgSVG: wraps the achievement centred on the fixed OG canvas, brand ba
 // for why this uses its own Node-appropriate loading path rather than
 // importing functions/_lib/resvg.js's production Workers-oriented one). ──
 
+// Shared, once-per-process resvg-wasm + font init (mirrors functions/_lib/
+// resvg.js's own `ensureReady()` guard) — `initWasm()` throws if called
+// twice, and more than one test below renders through resvg-wasm directly
+// (bypassing the production lazy-loader), so every such test shares ONE init.
+let resvgReadyPromise = null;
+function ensureResvgReady() {
+  if (!resvgReadyPromise) {
+    resvgReadyPromise = (async () => {
+      const { Resvg, initWasm } = await import('@resvg/resvg-wasm');
+      const wasmBytes = await readFile(fileURLToPath(new URL('../../../../node_modules/@resvg/resvg-wasm/index_bg.wasm', import.meta.url)));
+      const fontBytes = await readFile(fileURLToPath(new URL('../../../_lib/fonts/cormorant-garamond-italic-subset.bin', import.meta.url)));
+      await initWasm(wasmBytes);
+      return { Resvg, fontBytes };
+    })();
+  }
+  return resvgReadyPromise;
+}
+
+/** Rasterise a design's real OG SVG (art prefetched, resvg-wasm) to PNG bytes. */
+async function renderDesignPng(Resvg, fontBytes, coat) {
+  const achievementSVG = await renderAchievementSVG(coat);
+  const svg = buildOgSVG(achievementSVG);
+  const resvg = new Resvg(svg, {
+    fitTo: { mode: 'width', value: OG_WIDTH },
+    font: { fontBuffers: [new Uint8Array(fontBytes)], loadSystemFonts: false, serifFamily: 'Cormorant Garamond', defaultFontFamily: 'Cormorant Garamond' },
+  });
+  const png = resvg.render().asPng();
+  resvg.free();
+  return Buffer.from(png);
+}
+
 test('resvg-wasm rasterises the REAL composed OG SVG to a valid PNG (magic bytes, correct dimensions)', async () => {
   stubR2Fetch();
-  const { Resvg, initWasm } = await import('@resvg/resvg-wasm');
-  const wasmBytes = await readFile(fileURLToPath(new URL('../../../../node_modules/@resvg/resvg-wasm/index_bg.wasm', import.meta.url)));
-  const fontBytes = await readFile(fileURLToPath(new URL('../../../_lib/fonts/cormorant-garamond-italic-subset.bin', import.meta.url)));
-  await initWasm(wasmBytes);
+  const { Resvg, fontBytes } = await ensureResvgReady();
 
   const coat = fullDesign();
   const achievementSVG = await renderAchievementSVG(coat);
@@ -147,6 +245,33 @@ test('resvg-wasm rasterises the REAL composed OG SVG to a valid PNG (magic bytes
   assert.equal(rendered.height, OG_HEIGHT);
   // A real, non-trivial image (a blank/broken render would be a tiny, mostly-empty PNG).
   assert.ok(png.length > 10_000, `expected a substantial PNG, got ${png.length} bytes`);
+});
+
+// Regression guard for the blank-motto bug (task-17-report.md §2 — resvg-wasm
+// ships with no fonts, so an unmatched font-family silently rendered zero
+// glyphs). The ONLY existing guard against that class of bug was the test
+// above's `png.length > 10_000`, which passes whether or not the motto
+// renders — the achievement art (shield/helm/torse/crest/supporters) alone
+// clears that bar regardless of the motto. This test instead renders two
+// otherwise-IDENTICAL designs (same field/charge/achievement) differing ONLY
+// in motto text and asserts the resulting PNGs differ: a renderer that
+// silently drops the motto (same scroll art, no glyphs, either way) would
+// produce byte-IDENTICAL PNGs here, which this test would catch and the
+// byte-count check never could.
+test('motto text differences produce DIFFERENT rendered PNG bytes — regression guard for the blank-motto bug', async () => {
+  stubR2Fetch();
+  const { Resvg, fontBytes } = await ensureResvgReady();
+
+  const designWithMotto = (motto) => withDefaultAchievement({
+    field: { tincture: 'Azure' },
+    charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } }],
+    motto,
+  });
+
+  const pngA = await renderDesignPng(Resvg, fontBytes, designWithMotto('Fortis et Fidelis'));
+  const pngB = await renderDesignPng(Resvg, fontBytes, designWithMotto('Deus Vult'));
+
+  assert.ok(!pngA.equals(pngB), 'expected two designs with different motto text to render different PNG bytes (a blank-motto renderer would make these identical)');
 });
 
 test('no PII: neither the encoded payload nor the rendered SVG carry a free-text description', async () => {

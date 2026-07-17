@@ -1,7 +1,7 @@
 import React, { useId } from 'react';
 import { TINCTURES, tinctureHex, blazon } from './heraldry.js';
 import { hasArt, artFile } from './charges/manifest.js';
-import { useCharge } from './charges/recolor.js';
+import { useCharge, artKey } from './charges/recolor.js';
 import { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally } from './render-capabilities.js';
 
 const SHIELD_PATH =
@@ -271,7 +271,12 @@ export default function Shield({
                   cx={p[0]}
                   cy={p[1]}
                   size={chargeSize(ch.qty || 1)}
-                  resolved={chargeArt ? chargeArt[artFile(ch.type, ch.attitude)] : null}
+                  // Keyed by file+hex (artKey), not file alone — the same
+                  // file rendered in a different tincture elsewhere in the
+                  // achievement (e.g. an Argent-lion crest alongside this
+                  // Or-lion shield charge) must not collide in `chargeArt`.
+                  // See src/charges/recolor.js's artKey doc comment.
+                  resolved={chargeArt ? chargeArt[artKey(artFile(ch.type, ch.attitude), tinctureHex(ch.tincture))] : null}
                 />
               ) : null
             ))}

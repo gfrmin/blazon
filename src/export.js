@@ -12,7 +12,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import Shield, { canRenderLocally } from './Shield.jsx';
 import { blazon, drawShieldURL, normalize, chargeGroup, tinctureHex } from './heraldry.js';
 import { hasArt, artFile } from './charges/manifest.js';
-import { resolveCharge } from './charges/recolor.js';
+import { resolveCharge, artKey } from './charges/recolor.js';
 import { footerCaption } from './watermark.js';
 
 const XMLNS = 'http://www.w3.org/2000/svg';
@@ -30,14 +30,18 @@ export function slug(design) {
 }
 
 // Pre-resolve vendored charge art (the render hook can't run under
-// renderToStaticMarkup), keyed by file so Shield renders it synchronously.
+// renderToStaticMarkup), keyed by artKey(file, hex) — Shield.jsx's own
+// `chargeArt` lookup uses the same composite key (review round 1, see
+// src/charges/recolor.js's artKey doc comment) — so Shield renders it
+// synchronously.
 async function resolveDesignCharges(design) {
   const coat = normalize(design);
   const g = coat && chargeGroup(coat);
   if (!g || !g.object || !hasArt(g.object.key)) return null;
   const file = artFile(g.object.key, g.object.attitude);
-  const art = await resolveCharge(file, tinctureHex(g.tincture));
-  return art ? { [file]: art } : null;
+  const hex = tinctureHex(g.tincture);
+  const art = await resolveCharge(file, hex);
+  return art ? { [artKey(file, hex)]: art } : null;
 }
 
 // A self-contained, watermarked SVG string for a locally-renderable design.
