@@ -148,7 +148,6 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   const [copied, setCopied] = useState(false);
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadSurface, setDownloadSurface] = useState('header'); // 'header' | 'result_peak' — which CTA opened it (analytics)
-  const [token, setToken] = useState(null); // Turnstile token (one-shot)
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
   const [chargeQuery, setChargeQuery] = useState(''); // search the full charge catalog
   const turnstileRef = useRef(null);
@@ -181,7 +180,8 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
   // ── Generation. Calls the Claude-backed Pages Function (spec §6.1), which
   //    returns a validated Coat. Falls back to a canned preset when the API
   //    isn't reachable / configured (offline, local dev, no key) so the
-  //    experience never dead-ends. ──
+  //    experience never dead-ends. This is the DESCRIBE path only — a preset
+  //    chip pick never reaches this function (see selectPreset below). ──
   const generate = async () => {
     if (generating) return;
     setGenerating(true);
@@ -189,13 +189,18 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     const started = Date.now();
     submitStartRef.current = performance.now();
     track('generate_submitted', { desc_length: desc.length, used_preset: selectedPreset != null });
+    // Execute Turnstile on submit (invisible unless it needs to challenge —
+    // see components/Turnstile.jsx) and await its one-shot token before
+    // POSTing. Not configured / not ready yet → resolves null, same fail-safe
+    // as before (the server gate treats a missing token as unconfigured).
+    const tok = await (turnstileRef.current?.execute() ?? Promise.resolve(null));
     let next = null;
     let blocked = null; // 'rate' | 'challenge' — an explicit gate, not a fallback case
     try {
       const r = await fetch('/api/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ description: desc, turnstileToken: token }),
+        body: JSON.stringify({ description: desc, turnstileToken: tok }),
       });
       if (r.ok) {
         const data = await r.json();
@@ -216,7 +221,6 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
 
     // Turnstile tokens are single-use — refresh for the next attempt.
     turnstileRef.current?.reset();
-    setToken(null);
 
     if (blocked) {
       setGenerating(false);
@@ -242,6 +246,30 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
     setStep('design');
     track('generate_result', { outcome: fromAi ? 'ai' : 'preset_fallback', latency_ms: Math.round(performance.now() - submitStartRef.current) });
   };
+
+  // ── Preset selection — the OTHER fork (task-15 brief §1). A preset chip's
+  //    design is already a known, complete AST (PRESETS below), so this
+  //    paints it straight away: no fetch, no Turnstile, no generate()
+  //    machinery, no spinner. Deliberately a separate function from
+  //    generate() — the two paths only share the withDefaultAchievement
+  //    backfill and the "settle into the design step" tail, both inlined
+  //    here rather than threading a preset flag through the async fetch
+  //    path. Guarded by `generating` only so a mid-flight describe submit
+  //    (rare: chips stay clickable while "Designing…" shows) can't have its
+  //    eventual result silently clobber a preset the user picked in the
+  //    meantime, or vice versa. ──
+  const selectPreset = (i) => {
+    if (generating) return;
+    track('preset_selected', { index: i });
+    const next = withDefaultAchievement(JSON.parse(JSON.stringify(PRESETS[i].design)));
+    hasEditedRef.current = false;         // a freshly picked design — no edits yet
+    pendingFirstRenderRef.current = true; // consumed by the first_render effect below
+    submitStartRef.current = performance.now();
+    setDesign(next);
+    setLang('plain');
+    setStep('design');
+  };
+
   const restart = () => {
     setStep('describe');
     setDesign(null);
@@ -588,10 +616,10 @@ export default function Studio({ onBack, initialDesign, arrivedViaShare }) {
               <div style={{ fontSize: 12, color: 'rgba(236,230,216,.5)', margin: '16px 0 9px', letterSpacing: '.5px' }}>OR TRY ONE OF THESE</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {PRESETS.map((p, i) => (
-                  <button key={i} onClick={() => { setDesc(p.desc); setSelectedPreset(i); track('preset_selected', { index: i }); }} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
+                  <button key={i} onClick={() => selectPreset(i)} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
                 ))}
               </div>
-              <Turnstile ref={turnstileRef} onToken={setToken} />
+              <Turnstile ref={turnstileRef} />
               <button onClick={generate} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
