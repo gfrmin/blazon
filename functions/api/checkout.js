@@ -77,6 +77,12 @@ export async function onRequestPost(context) {
     // which would break the webhookless success-return verify flow below
     // (/api/verify-payment expects `payment_status === 'paid'` immediately).
     ['payment_method_types[0]', 'card'],
+    // Statement-descriptor suffix — the $19 charge settles on a shared Stripe
+    // account whose default descriptor reads "RENAVON DATA"; the suffix makes
+    // the line item recognizable to the buyer as a Blazon purchase (shows as
+    // "RENAVON DATA* BLAZON"), reducing "what's this charge?" disputes. The
+    // account's card settings accept this suffix (verified at setup time).
+    ['payment_intent_data[statement_descriptor_suffix]', 'BLAZON'],
     ['metadata[designHash]', hash],
     ['metadata[v]', '1'],
     // {CHECKOUT_SESSION_ID} is a literal Stripe template token — substituted
