@@ -84,6 +84,37 @@ test('garbage input throws bad_payload', async () => {
   await assert.rejects(() => decodeCoat('!!not-a-real-payload!!'), { message: 'bad_payload' });
 });
 
+// ── SEC-1 (final whole-branch review): decompression-bomb cap ──
+
+test('SEC-1: a highly-compressible, hand-crafted oversized payload throws bad_payload (not OOM, not success) — the INFLATED size is capped, not just the encoded one', async () => {
+  // A run of one repeated byte compresses to almost nothing via deflate, but
+  // inflates back to its full size — a classic decompression-bomb shape.
+  // `encodeCoat` itself couldn't produce a payload this large (it caps the
+  // ENCODED length, retrying with rationale stripped) — this hand-builds the
+  // 'c'-prefixed wire format directly, exactly what an attacker controlling
+  // a `/a/`/`/api/og`/`/api/checkout` URL could send with no encoder involved.
+  const huge = JSON.stringify({ v: 1, coat: { field: { tincture: 'Gules' }, charges: [], rationale: 'A'.repeat(5_000_000) } });
+  const bytes = new TextEncoder().encode(huge);
+  const compressedStream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+  const compressed = new Uint8Array(await new Response(compressedStream).arrayBuffer());
+  const payload = 'c' + toBase64Url(compressed);
+
+  // Sanity: the COMPRESSED payload is tiny compared to the 5MB it inflates to
+  // (deflate crushes a run of one repeated byte by ~1000×) — proves this is
+  // actually testing the decompression-bomb shape (a small wire payload, a
+  // huge inflated one), not just an already-huge wire payload that a naive
+  // encoded-length check would already have caught.
+  assert.ok(payload.length < 20_000, `expected a highly-compressible payload, got ${payload.length} chars`);
+
+  await assert.rejects(() => decodeCoat(payload), { message: 'bad_payload' });
+});
+
+test('SEC-1: normal round-trip payloads are comfortably under the inflated-size cap (no false positives)', async () => {
+  const payload = await encodeCoat(sampleCoat);
+  const decoded = await decodeCoat(payload);
+  assert.deepEqual(decoded, normalize(sampleCoat));
+});
+
 // ── size guard ──
 
 test('typical coat payload is comfortably under 900 chars', async () => {

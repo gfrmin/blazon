@@ -7,11 +7,28 @@
 // Cloudflare Workers, and Node ≥18 — Web APIs only (CompressionStream,
 // DecompressionStream, crypto.subtle, TextEncoder/Decoder, btoa/atob). No
 // Buffer, no DOM, no Node-only imports.
+//
+// SEC-1 (final whole-branch review): `inflateRaw` caps the INFLATED byte
+// length, not just the encoded one. `MAX_LEN` only bounds the payload
+// `encodeCoat` itself produces — it says nothing about a payload someone
+// else crafts by hand. `/a/`, `/api/og`, and `/api/checkout` all feed
+// attacker-controlled URL payloads straight into `decodeCoat` with no other
+// throttle upstream, so a tiny, highly-compressible `c`-prefixed payload
+// (e.g. a run of one repeated byte) could otherwise inflate to an
+// arbitrarily large buffer — a classic decompression bomb — before
+// `JSON.parse`/`normalize` ever get a chance to reject it. Reading the
+// decompression stream incrementally and bailing once output exceeds
+// `MAX_INFLATED_BYTES` closes that off for all three callers at once.
 // ─────────────────────────────────────────────────────────────────────────
 
 import { normalize } from '../model/achievement.js';
 
 const MAX_LEN = 2000;
+// A few × MAX_LEN — comfortably more than any legitimate coat needs (a
+// real payload's INFLATED JSON is typically well under 1KB even for a full
+// achievement + long rationale text), nowhere near enough for a
+// decompression-bomb payload to matter.
+const MAX_INFLATED_BYTES = MAX_LEN * 8;
 
 // ── base64url over Uint8Array (hand-rolled: no Buffer) ──
 
@@ -39,7 +56,23 @@ async function deflateRaw(bytes) {
 
 async function inflateRaw(bytes) {
   const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const reader = stream.getReader();
+  const chunks = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_INFLATED_BYTES) {
+      await reader.cancel().catch(() => {}); // stop pulling more decompressed output
+      throw new Error('inflated payload exceeds cap');
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) { out.set(c, offset); offset += c.length; }
+  return out;
 }
 
 // ── canonicalization ──
