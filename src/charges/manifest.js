@@ -55,7 +55,12 @@ export function artFile(key, attitude) {
 
 export const hasArt = (key, attitude) => !!artFile(key, attitude);
 
-export const humanize = (k) => k.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+// `k` defensively coalesced when falsy (I1, final whole-branch review — same
+// belt-and-braces null-safety as model/charges.js's own humanizeKey): Studio's
+// part-picker UI calls this on a malformed design's `object.key`, which a
+// truncated /api/generate response or a crafted share payload can leave
+// undefined; degrade to a placeholder label rather than throw mid-render.
+export const humanize = (k) => (k ? k.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Charge');
 
 /** Picker metadata for a catalog key. */
 export function catalogEntry(catKey) {

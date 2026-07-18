@@ -1,55 +1,165 @@
 // ─────────────────────────────────────────────────────────────────────────
-// Export — download the arms as SVG or PNG, with a small blazon-text footer as
-// the (free-tier) watermark per spec §2. One module; it reuses the same Shield
-// renderer the screen uses (no second drawing path) and the DrawShield bridge
-// for anything the local engine can't draw faithfully.
+// Export — download the arms as a free, watermarked PNG, or (once unlocked,
+// M4/B7) the clean paid files: SVG, a 300dpi PNG, and a PDF. One module; it
+// renders the SAME composition the on-screen preview uses (WYSIWYG — see
+// task-19-brief §1, the MERGE-BLOCKER that closed: this file used to render
+// a bare `<Shield>` UNCONDITIONALLY while the preview showed a full
+// achievement) and the SSR seam (Task 12/17) both the og:image Function and
+// this file share via `resolveAchievementArt` (src/achievementArt.js).
+//
+// C1 (final whole-branch review, a LATER merge gate): task-19's fix went too
+// far the other way — it rendered `<Achievement>` UNCONDITIONALLY, so a
+// stripAchievement'd design ("Just the shield") shipped full helm/torse/
+// mantling furniture in every export despite the on-screen preview (and
+// ShareView/LibraryCard) correctly showing a bare shield. `achievementSVG`
+// now branches on `hasAchievement(coat)`, same as the preview — see
+// src/bareShield.js for the bare-shield composition this uses when false.
+//
+// `ssr: true` (Achievement.jsx) forces the local <Shield> unconditionally —
+// same tradeoff the og:image Function already made and ships in prod: an
+// out-of-vocab escutcheon degrades to whatever the local renderer can draw
+// rather than the drawshield.net <foreignObject>/<img> fallback, which does
+// not survive `renderToStaticMarkup` (no browser, no network turn to load
+// the cross-origin image). This is narrower than the preview's own fallback
+// (Studio's `shieldSlot` embeds the REAL DrawShield PNG for a non-local
+// escutcheon) — a rare edge case (the generation vocabulary is deliberately
+// almost-entirely local-renderable, Task 13), ledgered in task-19-report.md
+// rather than solved here (would need a client-side pre-fetch-as-data-URI of
+// the DrawShield PNG before render, mirroring Studio's `shieldSlot`).
+// `backfill: false` (Task 14 review requirement, reused from Task 17):
+// render EXACTLY the stored design, never silently re-seeding a part the
+// user set aside.
 // ─────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import Shield, { canRenderLocally } from './Shield.jsx';
-import { blazon, drawShieldURL, normalize, chargeGroup, tinctureHex } from './heraldry.js';
-import { hasArt, artFile } from './charges/manifest.js';
-import { resolveCharge } from './charges/recolor.js';
+import Achievement from './Achievement.jsx';
+import Shield from './Shield.jsx';
+import { blazon, normalize, hasAchievement } from './heraldry.js';
+import { resolveAchievementArt } from './achievementArt.js';
+import { footerCaption } from './watermark.js';
+import { bareShieldElement } from './bareShield.js';
 
 const XMLNS = 'http://www.w3.org/2000/svg';
-const FOOTER_H = 40; // band below the 240-tall shield for the blazon + credit
+
+// Achievement.jsx's own fixed canvas (src/achievement-art/layout.js
+// LAYOUT.viewBox) — SAME 5:6 aspect as the pre-Task-19 bare-shield export's
+// 200×240 viewBox (200:240 reduces to 5:6, same as 1000:1200), just 5× the
+// linear scale. Every footer constant below is the old bare-shield export's
+// own constant × 5 — same visual proportions, new canvas.
+const ACH_W = 1000;
+const ACH_H = 1200;
+const FREE_FOOTER_H = 260; // 5 × the old 52px shield-footer band
+
+const CC_BY_SA_NOTICE =
+  'Artwork: DrawShield (drawshield.net) & Wikimedia Commons contributors, used under CC BY-SA 4.0. ' +
+  'Full per-charge attribution: https://github.com/gfrmin/blazon/blob/master/ATTRIBUTION.md';
 
 const escapeXML = (s) =>
   String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-function slug(design) {
+// Insert `insertion` immediately before the DOCUMENT's own closing `</svg>`
+// — i.e. the LAST one in the string, not the first. The achievement markup
+// nests several of its own `<svg>` sub-elements (mantling/shield/helm/torse/
+// motto each wrap themselves in one), so a plain `.replace('</svg>', …)`
+// (which only ever touches the FIRST match) lands the insertion as a child
+// of the mantling's own nested svg instead of the document root — nested
+// `<svg>` establishes its own viewport and clips content outside it by
+// default, so the caption/watermark/credit text rendered with correct
+// content/fill/geometry (confirmed live: getBoundingClientRect, computed
+// styles, all correct) yet painted NOTHING, because it sat outside the
+// mantling's own small local viewport (task-19 live-verification finding —
+// caught only by actually rasterising and sampling pixels, not by string-
+// matching the markup, which is why export.test.js's assertions alone
+// didn't catch it). `lastIndexOf` targets the true root close unambiguously.
+function appendBeforeRootClose(svg, insertion) {
+  const idx = svg.lastIndexOf('</svg>');
+  return svg.slice(0, idx) + insertion + svg.slice(idx);
+}
+
+// Exported — Studio's Save-as name prompt (M3/B5, task-16 brief §2) reuses
+// this exact slug logic for its default name, rather than hand-rolling a
+// second one.
+export function slug(design) {
   const s = blazon(design, 'formal').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   return (s || 'coat-of-arms').slice(0, 60);
 }
 
-// Pre-resolve vendored charge art (the render hook can't run under
-// renderToStaticMarkup), keyed by file so Shield renders it synchronously.
-async function resolveDesignCharges(design) {
+/**
+ * The full achievement (mantling/shield/helm/torse/crest/supporters/motto)
+ * — OR, for a stripAchievement'd design, a bare shield (C1 fix, src/bareShield.js)
+ * — exactly as the preview shows it, as a self-contained SVG string.
+ *  - `clean: false` (default, free tier) — extends the canvas with a footer
+ *    band carrying the formal blazon, the "made with blazon.app" watermark,
+ *    and a small CC BY-SA credit line (the SAME considered mark, task-6
+ *    brief §4, now sized for the achievement canvas instead of a bare shield).
+ *  - `clean: true` (paid tier, task-19 brief §5) — NO visible caption; the
+ *    CC BY-SA attribution (a licence obligation on the vendored charge/
+ *    furniture art — never paid away) moves into an in-file `<metadata>`
+ *    element instead: a valid manner of attribution that doesn't mark up the
+ *    image itself.
+ * Exported for tests (asserts the pre-rasterise markup directly, same
+ * pattern as functions/api/og/[payload].js's `renderAchievementSVG`).
+ * @param {object} design
+ * @param {{clean?: boolean}} [opts]
+ * @returns {Promise<string>}
+ */
+export async function achievementSVG(design, { clean = false } = {}) {
   const coat = normalize(design);
-  const g = coat && chargeGroup(coat);
-  if (!g || !g.object || !hasArt(g.object.key)) return null;
-  const file = artFile(g.object.key, g.object.attitude);
-  const art = await resolveCharge(file, tinctureHex(g.tincture));
-  return art ? { [file]: art } : null;
-}
+  const artCache = await resolveAchievementArt(coat);
+  // C1: mirror the on-screen split (ShareView.jsx/Studio.jsx/LibraryCard.jsx
+  // all gate on hasAchievement) — a design with NO achievement member must
+  // export/unfurl as a bare shield, never the full furniture.
+  const withFurniture = hasAchievement(coat);
+  const markup = renderToStaticMarkup(
+    withFurniture
+      ? React.createElement(Achievement, { design: coat, ssr: true, backfill: false, artCache })
+      : bareShieldElement(Shield, coat, artCache),
+  );
+  // React omits the SVG namespace. The root <svg> also renders `width="100%"`
+  // with NO height attribute at all — correct for the on-screen DOM (a
+  // definite containing block), but a PERCENTAGE width has nothing to
+  // resolve against for svgToPNG's standalone `<img src="data:...">`
+  // rasterisation below: browsers fall back to an arbitrary default object
+  // size there, and preserveAspectRatio then letterboxes the WHOLE
+  // composition into it — confirmed live (task-19 verification): the
+  // free-tier footer band rasterised fully blank/mispositioned even though
+  // the caption/watermark text was correctly present in this markup. Pin
+  // BOTH width and height to definite pixel values (the achievement's own
+  // native canvas) so rasterisation is unambiguous, mirroring the
+  // pre-task-19 bare-shield export (which always passed <Shield
+  // width={aNumber}> for the exact same reason). `bareShieldElement` builds
+  // its OWN root with the identical shape (viewBox 1000×1200, width="100%",
+  // no height) for exactly this reason — this whole pipeline stays shared.
+  const withNS = markup
+    .replace('<svg ', `<svg xmlns="${XMLNS}" `)
+    .replace('width="100%"', `width="${ACH_W}" height="${ACH_H}"`);
 
-// A self-contained, watermarked SVG string for a locally-renderable design.
-// Renders the live Shield component to static markup (same output as on screen),
-// extends the viewBox by a footer band, and writes the formal blazon into it.
-async function localSVG(design, width = 600) {
-  const chargeArt = await resolveDesignCharges(design);
-  const markup = renderToStaticMarkup(React.createElement(Shield, { design, width, chargeArt }));
+  if (clean) {
+    const metadata = `<metadata>${escapeXML(CC_BY_SA_NOTICE)}</metadata>`;
+    return appendBeforeRootClose(withNS, metadata);
+  }
+
+  const { blazon: blazonLine, watermark } = footerCaption(coat);
   // textLength + lengthAdjust force the blazon to fit the width however long it is.
-  const caption = `<text x="100" y="${240 + 17}" text-anchor="middle" textLength="184" lengthAdjust="spacingAndGlyphs" font-family="Cormorant Garamond, Georgia, serif" font-size="11" font-style="italic" fill="#C9A24B">${escapeXML(blazon(design, 'formal'))}</text>`;
-  // CC-BY-SA requires crediting the artwork when a vendored charge is present.
-  const credit = chargeArt
-    ? `<text x="100" y="${240 + 31}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="6.5" fill="#8a8674">Artwork: drawshield.net &amp; Wikimedia Commons · CC BY-SA</text>`
+  const caption = `<text x="500" y="${ACH_H + 75}" text-anchor="middle" textLength="920" lengthAdjust="spacingAndGlyphs" font-family="Cormorant Garamond, Georgia, serif" font-size="55" font-style="italic" fill="#C9A24B">${escapeXML(blazonLine)}</text>`;
+  const mark = `<text x="500" y="${ACH_H + 135}" text-anchor="middle" font-family="Cormorant Garamond, Georgia, serif" font-size="45" font-style="italic" fill="#C9A24B" fill-opacity="0.62">${escapeXML(watermark)}</text>`;
+  // The achievement ALWAYS carries vendored CC-BY-SA art (helm/torse/
+  // mantling/motto-scroll furniture at minimum, plus the crest/supporters'
+  // default figural charges), so the credit line is unconditional there. A
+  // BARE shield only carries vendored art when its own charge does (a purely
+  // geometric shield — mullet/roundel/etc. — uses none at all) — gate the
+  // credit on that (mirrors the pre-Task-19 bare-shield export's own
+  // `chargeArt ? credit : ''`), so the free PNG never claims third-party
+  // artwork it didn't actually use.
+  const creditNeeded = withFurniture || Object.keys(artCache).length > 0;
+  const credit = creditNeeded
+    ? `<text x="500" y="${ACH_H + 200}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32.5" fill="#8a8674">Artwork: drawshield.net &amp; Wikimedia Commons · CC BY-SA</text>`
     : '';
-  return markup
-    .replace('<svg ', `<svg xmlns="${XMLNS}" `) // React omits the namespace
-    .replace('viewBox="0 0 200 240"', `viewBox="0 0 200 ${240 + FOOTER_H}"`)
-    .replace('</svg>', `${caption}${credit}</svg>`);
+  const extended = withNS
+    .replace(`viewBox="0 0 ${ACH_W} ${ACH_H}"`, `viewBox="0 0 ${ACH_W} ${ACH_H + FREE_FOOTER_H}"`)
+    .replace(`height="${ACH_H}"`, `height="${ACH_H + FREE_FOOTER_H}"`);
+  return appendBeforeRootClose(extended, `${caption}${mark}${credit}`);
 }
 
 const svgDoc = (svg) => `<?xml version="1.0" encoding="UTF-8"?>\n${svg}`;
@@ -69,18 +179,16 @@ function downloadBlob(blob, filename) {
   triggerDownload(URL.createObjectURL(blob), filename, true);
 }
 
-// Rasterise an SVG string to a PNG Blob at `widthPx` (≈300dpi for a ~3in shield).
-function svgToPNG(svgString, widthPx = 1000) {
+// Rasterise an SVG string to a PNG Blob at `widthPx`×`heightPx`.
+function svgToPNG(svgString, widthPx, heightPx) {
   return new Promise((resolve, reject) => {
     const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgDoc(svgString))}`;
     const img = new Image();
     img.onload = () => {
-      const w = widthPx;
-      const h = Math.round((widthPx * (240 + FOOTER_H)) / 200);
       const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.width = widthPx;
+      canvas.height = heightPx;
+      canvas.getContext('2d').drawImage(img, 0, 0, widthPx, heightPx);
       canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
     };
     img.onerror = () => reject(new Error('SVG image load failed'));
@@ -88,23 +196,68 @@ function svgToPNG(svgString, widthPx = 1000) {
   });
 }
 
-/** Download the design as an SVG file. */
-export async function downloadSVG(design) {
-  if (!design) return;
-  if (canRenderLocally(design)) {
-    downloadBlob(new Blob([svgDoc(await localSVG(design))], { type: 'image/svg+xml' }), `${slug(design)}.svg`);
-  } else {
-    // Can't post-process DrawShield's SVG (cross-origin) — hand off its file directly.
-    triggerDownload(drawShieldURL(design, { format: 'svg', size: 800 }), `${slug(design)}.svg`);
-  }
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('blob read failed'));
+    reader.readAsDataURL(blob);
+  });
 }
 
-/** Download the design as a print-resolution PNG. */
+/** Download the design as a free, watermarked, screen-resolution PNG — the
+ *  full achievement, matching the on-screen preview exactly (WYSIWYG). */
 export async function downloadPNG(design) {
   if (!design) return;
-  if (canRenderLocally(design)) {
-    downloadBlob(await svgToPNG(await localSVG(design), 1000), `${slug(design)}.png`);
-  } else {
-    triggerDownload(drawShieldURL(design, { format: 'png', size: 1000 }), `${slug(design)}.png`);
-  }
+  const svg = await achievementSVG(design, { clean: false });
+  const widthPx = 1000; // 1:1 with the achievement's own 1000-wide viewBox
+  const heightPx = Math.round((widthPx * (ACH_H + FREE_FOOTER_H)) / ACH_W);
+  downloadBlob(await svgToPNG(svg, widthPx, heightPx), `${slug(design)}.png`);
+}
+
+// ── Paid "clean" tier (M4/B7) — no watermark, CC-BY-SA moved into
+// <metadata>. Client-side gating is the accepted MVP tradeoff (task-19 brief
+// §5, documented): callers (DownloadDialog) only reach these once
+// `isUnlocked(currentHash)` (src/unlock.js) is true. The HMAC unlock token
+// minted by /api/verify-payment is forward-compatible with a future
+// server-side /api/export that validates it — that seam is left clean, not
+// built here. ──
+
+/** The clean vector SVG — no caption, CC-BY-SA in <metadata>. */
+export async function downloadCleanSVG(design) {
+  if (!design) return;
+  const svg = await achievementSVG(design, { clean: true });
+  downloadBlob(new Blob([svgDoc(svg)], { type: 'image/svg+xml' }), `${slug(design)}.svg`);
+}
+
+// 300dpi print resolution: 2000px wide (task-19 brief §5, verbatim).
+const PRINT_WIDTH = 2000;
+const PRINT_HEIGHT = Math.round((PRINT_WIDTH * ACH_H) / ACH_W);
+
+/** The clean, 300dpi (2000px-wide) print PNG — no caption. */
+export async function downloadCleanPNG(design) {
+  if (!design) return;
+  const svg = await achievementSVG(design, { clean: true });
+  downloadBlob(await svgToPNG(svg, PRINT_WIDTH, PRINT_HEIGHT), `${slug(design)}-print.png`);
+}
+
+/** The clean print PNG wrapped in a single-image PDF (lazy-loaded jsPDF —
+ *  code-split, paid-bundle only, never in the entry chunk: see package.json,
+ *  jsPDF is the one dependency task-19's brief permits, for exactly this). */
+export async function downloadCleanPDF(design) {
+  if (!design) return;
+  const svg = await achievementSVG(design, { clean: true });
+  const pngBlob = await svgToPNG(svg, PRINT_WIDTH, PRINT_HEIGHT);
+  const dataUrl = await blobToDataURL(pngBlob);
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'px', format: [PRINT_WIDTH, PRINT_HEIGHT] });
+  // 'MEDIUM' Flate-compresses the embedded image XObject — without it jsPDF
+  // stores the RAW uncompressed RGBA bitmap (2000×2400×4 bytes ≈ 19MB for
+  // this canvas, ~22× the source PNG's own compressed size; confirmed via a
+  // live drive during task-19's verification), which is an unreasonable
+  // download for a $19 purchase. 'MEDIUM' brought the same canvas from ~19MB
+  // to ~1MB (comparable to the PNG sibling download) with no visible quality
+  // loss (a Flate/zlib pass over already-rendered pixels is lossless).
+  doc.addImage(dataUrl, 'PNG', 0, 0, PRINT_WIDTH, PRINT_HEIGHT, undefined, 'MEDIUM');
+  doc.save(`${slug(design)}.pdf`);
 }

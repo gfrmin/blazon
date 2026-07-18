@@ -1,0 +1,52 @@
+{
+  "helmet/royal": {
+    "artist": "https://commons.wikimedia.org/wiki/User:Sodacan",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/User:Sodacan"
+  },
+  "helmet/peer": {
+    "artist": "https://commons.wikimedia.org/wiki/User:Zigeuner",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/User:Zigeuner"
+  },
+  "helmet/baronet": {
+    "artist": "https://commons.wikimedia.org/wiki/User:Orror",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/User:Orror"
+  },
+  "helmet/knight": {
+    "artist": "http://commons.wikimedia.org/wiki/User:SanglierT",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "http://commons.wikimedia.org/wiki/User:SanglierT"
+  },
+  "helmet/esquire": {
+    "artist": "https://commons.wikimedia.org/w/index.php?title=User:Raymond1922A",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/w/index.php?title=User:Raymond1922A"
+  },
+  "torse/torse": {
+    "artist": "https://commons.wikimedia.org/wiki/User:Sodacan",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/User:Sodacan"
+  },
+  "mantling/cloak": {
+    "artist": "https://commons.wikimedia.org/wiki/User:Bluebear2",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/User:Bluebear2"
+  },
+  "motto/scroll-above": {
+    "artist": "https://commons.wikimedia.org/wiki/File:Gentleman_coat_of_arms_template.svg",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/File:Gentleman_coat_of_arms_template.svg"
+  },
+  "motto/scroll-below": {
+    "artist": "https://commons.wikimedia.org/wiki/File:Gentleman_coat_of_arms_template.svg",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://commons.wikimedia.org/wiki/File:Gentleman_coat_of_arms_template.svg"
+  },
+  "compartments/pedestal": {
+    "artist": "(adapted from) http://www.therightproductions.nl/hogeraadvanadel/index.php?id=109&amp;wapen=1868",
+    "license": "CC BY-SA (Wikimedia Commons; treat as share-alike)",
+    "source": "https://drawshield.net"
+  }
+}

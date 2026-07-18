@@ -10,7 +10,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 button { font-family: inherit; }
-textarea:focus, input:focus { outline: none; }
+/* A visible keyboard-focus indicator for every text input/textarea in the
+   app (task-21 a11y sweep) — the previous blanket `outline: none` here left
+   every text field (describe, charge search, motto, save-as naming, hero
+   inline describe) with NO focus indicator at all for keyboard users. Gold
+   to match the app's own interaction language (the same colour Shield.jsx's
+   hover/focus zone-highlight and every gold CTA already use). */
+textarea:focus, input:focus { outline: 2px solid #C9A24B; outline-offset: 2px; }
 
 ::selection { background: #C9A24B; color: #0C0F17; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }

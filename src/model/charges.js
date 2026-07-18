@@ -85,7 +85,15 @@ export function attitudeValid(key, attitude) {
 
 // Charges outside the curated CHARGES table (the wider R2 catalog) have no
 // formal/plain forms — humanise the key (drop hyphens) as a reasonable blazon noun.
-const humanizeKey = (key) => key.replace(/[-_]/g, ' ').trim();
+// `key` is defensively coalesced when falsy (I1, final whole-branch review):
+// a malformed coat — an unvalidated /api/generate response truncated at
+// max_tokens, or a hand-crafted /a/|# share payload — can carry a charge/
+// crest/supporter `object` with no `key` at all. `blazon()` (via chargeNoun/
+// chargePlain below) must degrade to a placeholder noun here rather than
+// throw a TypeError on `undefined.replace` deep inside a render — the
+// top-level error boundary (src/ErrorBoundary.jsx) is the belt to this
+// braces, not a substitute for it.
+const humanizeKey = (key) => (key ? key.replace(/[-_]/g, ' ').trim() : 'charge');
 
 // A few irregular plurals common to heraldic charge names. Most charges follow
 // the regular rules below; this table covers the ones those would get wrong.

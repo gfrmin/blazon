@@ -64,24 +64,30 @@
  * @property {ChargeGroup[]} [charges]
  * @property {{type:string, parts:Coat[]}} [marshalling]  quarterly | impaled | per-X.
  * @property {string} [motto]
+ * @property {Achievement} [achievement]  The external achievement (crest/helm/…) surrounding the shield.
  * @property {Object} [rationale]    Friendly per-element copy (Gifter cards).
  */
 
 /**
- * The full achievement (modelled now; rendered incrementally). The shield is the Coat;
- * the remaining members surround it.
+ * A single supporter (dexter or sinister), standing beside the shield.
+ * @typedef {Object} Supporter
+ * @property {TinctureKey} tincture
+ * @property {ChargeObject} object     kind 'charge'; attitude usually 'rampant'
+ */
+
+/**
+ * The achievement — the members surrounding the shield. Modelled as an optional
+ * member of Coat (see `coat.achievement`), not a wrapping object, so every
+ * existing Coat consumer (normalize, the share codec, coat.js mutators) keeps
+ * working untouched. Badge/brisure/augmentation are post-MVP and intentionally
+ * absent from this typedef.
  * @typedef {Object} Achievement
- * @property {Coat} shield
- * @property {Object} [crest]
- * @property {Object} [helm]
- * @property {Object} [wreath]
- * @property {Object} [mantling]
- * @property {Object} [supporters]
- * @property {Object} [compartment]
- * @property {string} [motto]
- * @property {Object} [badge]
- * @property {Object} [brisure]       Mark of cadency.
- * @property {Object} [augmentation]
+ * @property {ChargeGroup} [crest]     role ignored; number usually 1
+ * @property {{style:string}} [helm]   style ∈ HELMETS keys
+ * @property {{tinctures:TinctureKey[]}} [torse]      [metal, colour]
+ * @property {{tinctures:TinctureKey[]}} [mantling]   [colour, metal]
+ * @property {{dexter:Supporter, sinister?:Supporter}} [supporters]  sinister omitted → matched pair
+ * @property {{type?:string, tincture?:TinctureKey}} [compartment]
  */
 
 export {};

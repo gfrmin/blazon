@@ -24,7 +24,10 @@ export {
   CHARGES, CHARGE_ORDER, ATTITUDES,
   categoryOf, validAttitudesFor, defaultAttitudeFor, attitudeValid, chargeNoun, chargePlain,
 } from './model/charges.js';
-export { HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal } from './model/achievement.js';
+export {
+  HELMETS, ACHIEVEMENT_PARTS, normalize, coat, marshal,
+  hasAchievement, liveryTinctures, withDefaultAchievement, stripAchievement,
+} from './model/achievement.js';
 export * from './model/coat.js'; // selectors + immutable mutators (single home for AST edits)
 export { blazon } from './model/blazon.js';
 export { computeWarn } from './model/validate.js';
@@ -165,10 +168,12 @@ export const PRESETS = [
   },
 ];
 
-// Deterministic when an example chip was used (selectedPreset index); otherwise
-// a light keyword match. Replace wholesale with the API call in production.
-export function pickPreset(text, selectedPreset) {
-  if (selectedPreset != null) return PRESETS[selectedPreset];
+// A light keyword match over the free-text description — the canned-preset
+// fallback used when generation fails/is unavailable (Studio.jsx's
+// generate()). Preset CHIPS bypass this entirely (Task 15's selectPreset
+// paints a picked preset straight away, no generate() call at all), so this
+// only ever sees real describe-step text.
+export function pickPreset(text) {
   const t = (text || '').toLowerCase();
   if (/build|home|garden|steady|craft|farm|patient|carpenter/.test(t)) return PRESETS[1];
   if (/militar|bold|fierce|fight|soldier|brave|war|proud/.test(t)) return PRESETS[2];

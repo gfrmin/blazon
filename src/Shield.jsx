@@ -1,43 +1,41 @@
 import React, { useId } from 'react';
-import { TINCTURES, tinctureHex, blazon, normalize } from './heraldry.js';
+import { TINCTURES, tinctureHex, blazon } from './heraldry.js';
 import { hasArt, artFile } from './charges/manifest.js';
-import { useCharge } from './charges/recolor.js';
+import { useCharge, artKey } from './charges/recolor.js';
+import { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally } from './render-capabilities.js';
 
 const SHIELD_PATH =
   'M18,14 H182 V108 C182,170 144,204 100,226 C56,204 18,170 18,108 Z';
 
 // What this SVG renderer can draw natively — the SINGLE source of truth for
-// local-render capability. `OrdinaryEl` / `ChargeShape` / `DivisionEls` below
-// handle exactly these keys, and `canRenderLocally()` reads the same lists, so
-// the Studio's "fall back to DrawShield?" decision can never drift from reality.
-export const LOCAL_DIVISIONS = ['per pale', 'per fess', 'quarterly', 'per bend', 'per bend sinister', 'per saltire', 'per chevron'];
-export const LOCAL_ORDINARIES = ['fess', 'pale', 'bend', 'cross', 'chevron', 'saltire'];
-export const LOCAL_CHARGES = ['roundel', 'lozenge', 'crescent', 'mullet'];
+// local-render capability now lives in ./render-capabilities.js (so it can
+// also be imported by the generation Pages Function without pulling in React
+// or JSX). `OrdinaryEl` / `ChargeShape` / `DivisionEls` below handle exactly
+// the LOCAL_* keys re-exported here; `canRenderLocally()` reads the same
+// lists, so the Studio's "fall back to DrawShield?" decision can never drift
+// from reality.
+export { LOCAL_DIVISIONS, LOCAL_ORDINARIES, LOCAL_CHARGES, canRenderLocally };
 
-/**
- * Can the local SVG engine draw this design faithfully? (Else the caller should
- * use the DrawShield bridge.) Conservative: lines of partition, field
- * treatments, subordinaries, marshalling, and any charge/ordinary outside the
- * LOCAL_* sets all defer to DrawShield.
- */
-export function canRenderLocally(design) {
-  const coat = normalize(design);
-  if (!coat) return true;
-  if (coat.marshalling) return false;
-  const f = coat.field || {};
-  if (f.treatment) return false;
-  if (f.division) {
-    if (!LOCAL_DIVISIONS.includes(f.division.type)) return false;
-    if (f.division.line && f.division.line !== 'straight') return false;
-  }
-  for (const g of coat.charges || []) {
-    const o = g.object || {};
-    if (o.line && o.line !== 'straight') return false;
-    if (o.kind === 'ordinary' && !LOCAL_ORDINARIES.includes(o.key)) return false;
-    if (o.kind === 'subordinary') return false; // none drawn locally yet
-    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
-  }
-  return true;
+// Root <svg> a11y role/label selection (task-21 review round 1 — "nested
+// role=img collapses interactive zones" finding). `role="img"` is correct
+// for a STATIC shield: WAI-ARIA collapses its entire subtree into one leaf,
+// which is exactly right when there's nothing beneath it but decorative
+// paths. But when `interactive` is true (Landing's driving-mode hero), the
+// three zones below carry their own `role="button"`/`tabIndex`/`aria-label`
+// (see `zoneA11y` below) — collapsing them under `role="img"` hides that
+// from assistive tech even though they stay mouse- and keyboard-operable
+// (DOM-level/Playwright drives don't see the difference, which is how this
+// slipped through the original a11y sweep). `role="group"` is a plain,
+// non-collapsing container: it still gets a name via `aria-label`, but its
+// interactive descendants remain individually exposed. `ariaHidden` (the
+// achievement's inner escutcheon, whose OWN root <svg> already carries the
+// composition's single role="img"/aria-label) is unchanged either way — no
+// role, no label, just aria-hidden.
+export function rootA11y(interactive, ariaHidden) {
+  if (ariaHidden) return { role: undefined, labelSuffix: '' };
+  return interactive
+    ? { role: 'group', labelSuffix: ' — tap a part to change it' }
+    : { role: 'img', labelSuffix: '' };
 }
 
 // 5-point star points for a mullet.
@@ -205,6 +203,7 @@ export default function Shield({
   onCharge,
   width = '100%',
   chargeArt = null,
+  ariaHidden = false,
 }) {
   const uid = useId().replace(/[:]/g, '');
   const clip = `clip-${uid}`;
@@ -219,6 +218,27 @@ export default function Shield({
   const enter = (p) => (interactive && onHover ? () => onHover(p) : undefined);
   const leave = interactive && onHover ? () => onHover(null) : undefined;
 
+  // Keyboard equivalent of onClick for the interactive zones (task-21 a11y
+  // sweep — these were mouse-only: a click handler with no tabIndex/role/
+  // keydown is invisible to keyboard/screen-reader users even though it's
+  // the hero's advertised interaction). Enter and Space both activate, same
+  // as a native <button>; Space must preventDefault or the page would also
+  // scroll.
+  const zoneKeyDown = (handler) => (interactive && handler ? (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault();
+      handler(e);
+    }
+  } : undefined);
+  const zoneA11y = (part, handler, label) => (interactive ? {
+    role: 'button',
+    tabIndex: 0,
+    'aria-label': label,
+    onFocus: enter(part),
+    onBlur: leave,
+    onKeyDown: zoneKeyDown(handler),
+  } : {});
+
   // Per-zone style: hover wins (brightness); else breathe while autoHint; else
   // the change-morph. NB: only set `filter` inline when hovering, so the
   // zonepulse keyframe controls brightness the rest of the time.
@@ -230,12 +250,15 @@ export default function Shield({
     return st;
   };
 
+  const { role: rootRole, labelSuffix } = rootA11y(interactive, ariaHidden);
+
   return (
     <svg
       viewBox="0 0 200 240"
       width={width}
-      role="img"
-      aria-label={blazon(design, 'formal')}
+      role={rootRole}
+      aria-label={ariaHidden ? undefined : `${blazon(design, 'formal')}${labelSuffix}`}
+      aria-hidden={ariaHidden || undefined}
       style={{ display: 'block', filter: 'drop-shadow(0 16px 34px rgba(0,0,0,.5))' }}
     >
       <defs>
@@ -251,6 +274,7 @@ export default function Shield({
         onMouseEnter={enter('field')}
         onMouseLeave={leave}
         style={zoneStyle('field', '0s', { transition: 'fill .45s ease, filter .2s ease' })}
+        {...zoneA11y('field', onField, 'Change the field colour')}
       />
 
       <g clipPath={`url(#${clip})`}>
@@ -267,6 +291,7 @@ export default function Shield({
             onMouseEnter={enter('ord')}
             onMouseLeave={leave}
             style={zoneStyle('ord', '.55s')}
+            {...zoneA11y('ord', onOrdinary, 'Change the structure')}
           >
             <OrdinaryEl type={ord.key} hex={ordHex} />
           </g>
@@ -279,6 +304,7 @@ export default function Shield({
             onMouseEnter={enter('chg')}
             onMouseLeave={leave}
             style={zoneStyle('chg', '1.1s')}
+            {...zoneA11y('chg', onCharge, 'Change the symbol')}
           >
             {chargeSlots(ch.qty || 1).map((p, i) => (
               // Geometric charges keep their crisp native shapes; everything else
@@ -293,7 +319,12 @@ export default function Shield({
                   cx={p[0]}
                   cy={p[1]}
                   size={chargeSize(ch.qty || 1)}
-                  resolved={chargeArt ? chargeArt[artFile(ch.type, ch.attitude)] : null}
+                  // Keyed by file+hex (artKey), not file alone — the same
+                  // file rendered in a different tincture elsewhere in the
+                  // achievement (e.g. an Argent-lion crest alongside this
+                  // Or-lion shield charge) must not collide in `chargeArt`.
+                  // See src/charges/recolor.js's artKey doc comment.
+                  resolved={chargeArt ? chargeArt[artKey(artFile(ch.type, ch.attitude), tinctureHex(ch.tincture))] : null}
                 />
               ) : null
             ))}

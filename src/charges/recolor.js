@@ -8,6 +8,21 @@ export { recolorCharge, viewBoxOf } from './recolor-core.js';
 // catalog path, e.g. "lion/lion-rampant".
 export const R2_BASE = 'https://pub-b430701fd019477e916a2a94549058cf.r2.dev/charges';
 
+// Composite identity for a tincture-resolved charge, used to key every
+// artCache-shaped map in the codebase (Achievement.jsx's `artCache`,
+// Shield.jsx's `chargeArt`, functions/_lib/achievementArt.js's prefetch
+// cache). `file` alone is NOT a safe cache key: `resolveCharge` bakes `hex`
+// into `art.inner` (the silhouette recolour below), so the SAME file drawn
+// in two different tinctures — e.g. an Or lion on the shield and an Argent
+// lion crest, both `lion/lion-rampant` — must occupy two different cache
+// entries, not collide into one (the last write wins otherwise, and every
+// slot sharing that file silently renders in whichever tincture wrote last).
+// Fixed at review round 1 (task-17-report.md) after this exact collision
+// made the OG image ignore per-slot tinctures for same-file/different-hex
+// designs. One helper, imported on both the write side (the prefetch) and
+// every read side (Achievement.jsx, Shield.jsx) so they can't drift apart.
+export const artKey = (file, hex) => `${file}::${hex}`;
+
 const cache = new Map();
 export function fetchCharge(path) {
   if (!cache.has(path)) {
