@@ -39,6 +39,18 @@ import {
   restoreFullAchievement, stripAchievement,
 } from './heraldry.js';
 
+// A row of tincture swatches. Hoisted to module scope (was defined inside the
+// Studio component body) so it has a STABLE component identity — otherwise every
+// Studio re-render, including each motto keystroke, minted a new component type
+// and React remounted every Swatch button in every row.
+const Swatches = ({ names, active, onPick }) => (
+  <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+    {names.map((name) => (
+      <Swatch key={name} hex={TINCTURES[name].hex} active={name === active} title={`${name} (${TINCTURES[name].plain})`} onClick={() => onPick(name)} />
+    ))}
+  </div>
+);
+
 const LOGO = (
   <svg width="24" height="27" viewBox="0 0 30 34">
     <path d="M2,3 H28 V18 C28,26 22,31 15,33 C8,31 2,26 2,18 Z" fill="#16273E" stroke="#C9A24B" strokeWidth="1.6" />
@@ -180,6 +192,7 @@ export default function Studio({ onBack }) {
   const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
   const [chargeQuery, setChargeQuery] = useState(''); // search the full charge catalog
   const turnstileRef = useRef(null);
+  const genAbortRef = useRef(null); // AbortController for the in-flight /api/generate fetch
   const [dsUrl, setDsUrl] = useState(null); // debounced DrawShield fallback URL
   const [dsFailed, setDsFailed] = useState(false); // DrawShield img errored → degrade to local
   const [autoGenPending, setAutoGenPending] = useState(false); // queued ?desc= auto-generation
@@ -211,6 +224,9 @@ export default function Studio({ onBack }) {
   // network round trip). ──
   const pendingUnlockRef = useRef(null); // { hash, token } | null
   const [unlockTick, setUnlockTick] = useState(0);
+
+  // Abort an in-flight generation if the Studio unmounts (navigation away).
+  useEffect(() => () => genAbortRef.current?.abort(), []);
 
   // studio_opened — once per mount, with the CTA source Landing recorded
   // (or 'direct' for a bare /studio visit / refresh / share arrival).
@@ -262,12 +278,17 @@ export default function Studio({ onBack }) {
     const tok = timedOut ? null : tokenResult;
     let next = null;
     let blocked = null; // 'rate' | 'challenge' — an explicit gate, not a fallback case
+    // Abort the request if the user navigates away mid-generation, so the
+    // Function can stop early instead of running to completion unobserved.
+    const abort = new AbortController();
+    genAbortRef.current = abort;
     if (!timedOut) {
       try {
         const r = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ description: desc, turnstileToken: tok }),
+          signal: abort.signal,
         });
         if (r.ok) {
           const data = await r.json();
@@ -288,6 +309,11 @@ export default function Studio({ onBack }) {
     }
     // (timedOut → next/blocked stay at their initial null, which the shared
     // tail below already treats as "no AI design" → preset fallback.)
+
+    // Unmounted (navigated away) mid-flight → the fetch was aborted; stop here
+    // rather than running the preset fallback + setState on a dead component.
+    if (abort.signal.aborted) return;
+    genAbortRef.current = null;
 
     // Turnstile tokens are single-use — refresh for the next attempt. Safe to
     // call even after a timeout: reset() is a no-op if the widget never
@@ -375,10 +401,16 @@ export default function Studio({ onBack }) {
   };
 
   const copyBlazon = () => {
-    navigator.clipboard?.writeText(blazon(design, 'formal')).catch(() => {});
-    setCopied(true);
-    track('blazon_copied');
-    setTimeout(() => setCopied(false), 1600);
+    // Only claim "Copied ✓" when the write actually resolves — a missing
+    // clipboard API (insecure context / older browser) or a rejected write must
+    // not flash a success the user can't act on.
+    const write = navigator.clipboard?.writeText(blazon(design, 'formal'));
+    if (!write) return;
+    write.then(() => {
+      setCopied(true);
+      track('blazon_copied');
+      setTimeout(() => setCopied(false), 1600);
+    }).catch(() => { /* clipboard blocked → no false success */ });
   };
 
   // Writes to the library (`blazon:library:v1`, via src/library.js) and
@@ -648,7 +680,12 @@ export default function Studio({ onBack }) {
     // PNG, not SVG: DrawShield serves SVG as text/xml, which <img> won't render.
     const t = setTimeout(() => setDsUrl(drawShieldURL(design, { format: 'png', size: 600 })), 600);
     return () => clearTimeout(t);
-  }, [formal, local, design]);
+    // Keyed on `formal` (the rendered blazon), NOT `design`: a motto/rationale
+    // keystroke changes `design` but not the shield, so keying on `design` would
+    // needlessly re-fire this debounce and blank the fallback preview on every
+    // keypress. `formal` changes exactly when the drawn shield does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formal, local]);
 
   const warn = computeWarn(design);
   const struct = design ? primaryGroup(design) : null;
@@ -746,14 +783,6 @@ export default function Studio({ onBack }) {
     setChargeQuery('');
     searchPickedRef.current = false;
   };
-
-  const Swatches = ({ names, active, onPick }) => (
-    <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
-      {names.map((name) => (
-        <Swatch key={name} hex={TINCTURES[name].hex} active={name === active} title={`${name} (${TINCTURES[name].plain})`} onClick={() => onPick(name)} />
-      ))}
-    </div>
-  );
 
   // ── Header layout (task-18 brief §2) — pure inline-vs-overflow decision
   // lives in header-layout.js; the ONE thing that's runtime data, not

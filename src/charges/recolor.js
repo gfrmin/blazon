@@ -26,7 +26,17 @@ export const artKey = (file, hex) => `${file}::${hex}`;
 const cache = new Map();
 export function fetchCharge(path) {
   if (!cache.has(path)) {
-    cache.set(path, fetch(`${R2_BASE}/${path}.svg`).then((r) => (r.ok ? r.text() : null)).catch(() => null));
+    const p = fetch(`${R2_BASE}/${path}.svg`)
+      .then((r) => (r.ok ? r.text() : null))
+      .catch(() => null)
+      .then((svg) => {
+        // Don't memoize a failure forever — a transient network error or a
+        // cold-cache 5xx would otherwise pin this charge to "no art" for the
+        // whole session. Evict so the next request retries.
+        if (svg == null) cache.delete(path);
+        return svg;
+      });
+    cache.set(path, p);
   }
   return cache.get(path);
 }
@@ -41,11 +51,20 @@ export async function resolveCharge(file, hex) {
 /** React hook: fetch + recolour a charge; returns { viewBox, inner } when ready. */
 export function useCharge(file, hex) {
   const [art, setArt] = useState(null);
+  // Drop stale art the instant the FILE changes (keyed on file alone, not hex),
+  // so a swap never briefly shows the previous charge while the new one loads —
+  // and if the new fetch fails, we don't keep the wrong charge on screen. A
+  // hex-only change (a tincture swap of the same file) is intentionally NOT
+  // cleared here, so it recolours in place without a blank flash.
+  useEffect(() => { setArt(null); }, [file]);
   useEffect(() => {
     if (!file) { setArt(null); return undefined; }
     let live = true;
     fetchCharge(file).then((svg) => {
-      if (live && svg) setArt({ viewBox: viewBoxOf(svg), inner: recolorCharge(svg, hex) });
+      if (!live) return;
+      // Set the resolved art, or clear on failure (evict stale art) — never
+      // leave whatever was showing before.
+      setArt(svg ? { viewBox: viewBoxOf(svg), inner: recolorCharge(svg, hex) } : null);
     });
     return () => { live = false; };
   }, [file, hex]);

@@ -27,3 +27,11 @@ test('subordinaries always defer (none drawn locally yet)', () => {
   ]);
   assert.equal(canRenderLocally(c), false);
 });
+
+// A field treatment (semy/fretty/masoned) is modelled and blazoned but has no
+// local renderer — it must defer to DrawShield, which draws it (S5.4). The
+// treatment stays a coherent, tested capability rather than dead code.
+test('a field treatment defers to DrawShield', () => {
+  const c = coat({ tincture: 'Azure', treatment: { type: 'semy', of: 'estoiles' } }, []);
+  assert.equal(canRenderLocally(c), false);
+});

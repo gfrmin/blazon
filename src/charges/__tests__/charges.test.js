@@ -34,6 +34,35 @@ test('luminance threshold: only near-black is kept as outline', () => {
   assert.ok(luminance('#808080') > 0.12, 'mid grey recoloured');
 });
 
+test('luminance never returns NaN on a malformed short fragment', () => {
+  assert.equal(Number.isNaN(luminance('#abcd')), false); // 4-digit fragment → sane value, not NaN
+  assert.equal(luminance('#abcd'), 1);
+});
+
+test('recolorCharge recolours a 3-digit body fill and keeps a near-black 3-digit outline', () => {
+  const sample = '<svg viewBox="0 0 10 10"><path style="fill:#ff0"/><path style="fill:#111"/></svg>';
+  const out = recolorCharge(sample, '#1F4E7A');
+  assert.ok(out.includes('fill:#1F4E7A'), '3-digit body recoloured');
+  assert.ok(out.includes('fill:#111'), '3-digit near-black outline kept');
+});
+
+test('recolorCharge preserves the alpha of an 8-digit #RRGGBBAA body fill', () => {
+  const sample = '<svg viewBox="0 0 10 10"><path style="fill:#ffcc0080"/></svg>';
+  const out = recolorCharge(sample, '#1F4E7A');
+  // RGB recoloured, the "80" alpha kept — not dropped (which would mangle it to
+  // a solid) and not left as a stray fragment.
+  assert.ok(out.includes('fill:#1F4E7A80'), out);
+  assert.ok(!/ffcc00/i.test(out), 'original RGB gone');
+});
+
+test('recolorCharge does not split an 8-digit hex into a 6-digit match plus stray alpha', () => {
+  const sample = '<svg viewBox="0 0 10 10"><path fill="#00112233"/></svg>';
+  const out = recolorCharge(sample, '#D4AF52');
+  // #001122 is near-black by luminance, so the whole 8-digit value is KEPT
+  // (matched whole, not as "#001122" + "33").
+  assert.ok(out.includes('fill="#00112233"'), out);
+});
+
 test('viewBoxOf reads the viewBox (with fallback)', () => {
   assert.equal(viewBoxOf(SAMPLE), '0 0 10 20');
   assert.equal(viewBoxOf('<svg></svg>'), '0 0 100 100');

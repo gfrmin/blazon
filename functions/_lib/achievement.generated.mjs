@@ -761,6 +761,7 @@ function luminance(hex) {
   const r = parseInt(h.slice(0, 2), 16) / 255;
   const g = parseInt(h.slice(2, 4), 16) / 255;
   const b = parseInt(h.slice(4, 6), 16) / 255;
+  if (Number.isNaN(r + g + b)) return 1;
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 var keep = (val) => val.toLowerCase() === "none" || luminance(val) < KEEP_LUM;
@@ -789,11 +790,16 @@ var NAMED_BODY = /* @__PURE__ */ new Set([
   "brown"
 ]);
 var swapNamed = (name) => NAMED_BODY.has(name.toLowerCase());
+var HEX = "#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])";
 function recolorCharge(svg, hex) {
   const inner = svg.replace(/<svg[^>]*>/i, "").replace(/<\/svg>\s*$/i, "");
-  const swapHex = (m, val) => keep(val) ? m : m.replace(val, hex);
+  const swapHex = (m, val) => {
+    if (keep(val)) return m;
+    const replacement = val.length === 9 ? hex + val.slice(7) : hex;
+    return m.replace(val, replacement);
+  };
   const swapWord = (m, val) => swapNamed(val) ? m.replace(val, hex) : m;
-  return inner.replace(/fill:\s*(#[0-9a-fA-F]{3,6}|none)/g, swapHex).replace(/fill="(#[0-9a-fA-F]{3,6}|none)"/g, swapHex).replace(/fill:\s*([a-zA-Z]+)/g, swapWord).replace(/fill="([a-zA-Z]+)"/g, swapWord);
+  return inner.replace(new RegExp(`fill:\\s*(${HEX}|none)`, "g"), swapHex).replace(new RegExp(`fill="(${HEX}|none)"`, "g"), swapHex).replace(/fill:\s*([a-zA-Z]+)/g, swapWord).replace(/fill="([a-zA-Z]+)"/g, swapWord);
 }
 function viewBoxOf(svg) {
   return svg.match(/viewBox="([^"]*)"/i)?.[1] || "0 0 100 100";
@@ -805,12 +811,19 @@ var artKey = (file, hex) => `${file}::${hex}`;
 var cache = /* @__PURE__ */ new Map();
 function fetchCharge(path) {
   if (!cache.has(path)) {
-    cache.set(path, fetch(`${R2_BASE}/${path}.svg`).then((r) => r.ok ? r.text() : null).catch(() => null));
+    const p = fetch(`${R2_BASE}/${path}.svg`).then((r) => r.ok ? r.text() : null).catch(() => null).then((svg) => {
+      if (svg == null) cache.delete(path);
+      return svg;
+    });
+    cache.set(path, p);
   }
   return cache.get(path);
 }
 function useCharge(file, hex) {
   const [art, setArt] = useState(null);
+  useEffect(() => {
+    setArt(null);
+  }, [file]);
   useEffect(() => {
     if (!file) {
       setArt(null);
@@ -818,7 +831,8 @@ function useCharge(file, hex) {
     }
     let live = true;
     fetchCharge(file).then((svg) => {
-      if (live && svg) setArt({ viewBox: viewBoxOf(svg), inner: recolorCharge(svg, hex) });
+      if (!live) return;
+      setArt(svg ? { viewBox: viewBoxOf(svg), inner: recolorCharge(svg, hex) } : null);
     });
     return () => {
       live = false;

@@ -19,6 +19,13 @@ test('legacy object → plain English (prototype-compatible)', () => {
   assert.equal(blazon(heroLegacy, 'plain'), 'A red shield with a gold chevron, and three silver stars.');
 });
 
+// ── Field treatment (semy/fretty/masoned) — modelled + blazoned (renders via
+//    DrawShield; see render-capabilities). ──
+test('a field treatment is named in the formal blazon', () => {
+  assert.equal(blazon(coat({ tincture: 'Azure', treatment: { type: 'semy', of: 'estoiles' } }), 'formal'),
+    'Azure semy of estoiles');
+});
+
 // ── Divisions, lines of partition ──
 test('divided field, no charges', () => {
   assert.equal(blazon(coat({ division: { type: 'quarterly', tinctures: ['Gules', 'Or'] } }), 'formal'),

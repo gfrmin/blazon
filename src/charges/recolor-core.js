@@ -12,6 +12,9 @@ export function luminance(hex) {
   const r = parseInt(h.slice(0, 2), 16) / 255;
   const g = parseInt(h.slice(2, 4), 16) / 255;
   const b = parseInt(h.slice(4, 6), 16) / 255;
+  // A malformed length (a 4-/5-digit fragment) parses to NaN — treat it as light
+  // (so it recolours as body) rather than letting NaN poison the comparison.
+  if (Number.isNaN(r + g + b)) return 1;
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
@@ -29,14 +32,26 @@ const NAMED_BODY = new Set([
 ]);
 const swapNamed = (name) => NAMED_BODY.has(name.toLowerCase());
 
+// A hex colour of exactly 3, 6, or 8 digits — longest-first alternation with a
+// trailing non-hex lookahead so an #RRGGBBAA is matched whole (never as a
+// 6-digit prefix + stray "AA"), and 4-/5-digit fragments never match at all.
+const HEX = '#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3})(?![0-9a-fA-F])';
+
 /** Inner markup of a charge SVG with body fills swapped to `hex` (outlines kept). */
 export function recolorCharge(svg, hex) {
   const inner = svg.replace(/<svg[^>]*>/i, '').replace(/<\/svg>\s*$/i, '');
-  const swapHex = (m, val) => (keep(val) ? m : m.replace(val, hex));
+  const swapHex = (m, val) => {
+    if (keep(val)) return m;
+    // Preserve an 8-digit #RRGGBBAA alpha channel — recolour only the RGB, so a
+    // partly-transparent body fill keeps its transparency instead of becoming a
+    // solid (or, if the alpha were dropped, a near-transparent) fill.
+    const replacement = val.length === 9 ? hex + val.slice(7) : hex;
+    return m.replace(val, replacement);
+  };
   const swapWord = (m, val) => (swapNamed(val) ? m.replace(val, hex) : m);
   return inner
-    .replace(/fill:\s*(#[0-9a-fA-F]{3,6}|none)/g, swapHex)
-    .replace(/fill="(#[0-9a-fA-F]{3,6}|none)"/g, swapHex)
+    .replace(new RegExp(`fill:\\s*(${HEX}|none)`, 'g'), swapHex)
+    .replace(new RegExp(`fill="(${HEX}|none)"`, 'g'), swapHex)
     .replace(/fill:\s*([a-zA-Z]+)/g, swapWord)
     .replace(/fill="([a-zA-Z]+)"/g, swapWord);
 }
