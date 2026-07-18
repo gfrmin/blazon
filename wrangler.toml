@@ -29,4 +29,4 @@ id = "de4812ca80b3454193bb009defd3124e"
 # namespace, add `preview_id` the same way RATE would if it had one).
 [[kv_namespaces]]
 binding = "PURCHASES"
-id = "REPLACE_WITH_REAL_PURCHASES_KV_NAMESPACE_ID"
+id = "6da8571c745b45be97d00b657fee4929"
