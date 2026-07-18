@@ -15,19 +15,25 @@ Requires Node 18+.
 
 ## What's here
 
-Two surfaces, both implemented and interactive:
+Four surfaces, all implemented and interactive:
 
 - **Landing** (`src/Landing.jsx`) — marketing page with an **interactive hero coat
   of arms**. Tap the shield's field / structure / symbol (or the three control
   buttons, or "Surprise me") to change it live; every result stays
   tincture-rule valid. A mini blazon bar toggles formal blazon ↔ plain English.
-- **Design Studio — Gifter mode** (`src/Studio.jsx`) — describe a person → generate
+- **Design Studio** (`src/Studio.jsx`) — describe a person → generate
   a design → swap each element via cards, with live tincture-rule validation.
   The always-visible **Blazon Bar** (bottom) is the product thesis: it keeps the
-  link between language and image legible at all times.
+  link between language and image legible at all times. Save/autosave to the
+  local **Library**, share links, and the $19 clean-file unlock live here.
+- **Library** (`src/Library.jsx`) — saved designs (localStorage, `src/library.js`)
+  with open / share / download / delete.
+- **Share view** (`src/ShareView.jsx`) — the `/a/<payload>` recipient page: the
+  design is encoded in the URL (`src/share/codec.js`), server functions rewrite
+  OG meta and rasterise a real og:image (`functions/a/`, `functions/api/og/`).
 
-`src/App.jsx` is a trivial two-view switch. Swap it for your router
-(`/`, `/studio`, …) when you wire this into a real app.
+Routing is `src/router.js` (`/`, `/studio`, `/library`, `/a/<payload>`), wired in
+`src/App.jsx` inside `src/ErrorBoundary.jsx`.
 
 ## Architecture
 
@@ -80,7 +86,7 @@ validates the tincture rule — both **accept the legacy flat object too** (via
 object; everything is stateless — store the `Coat`, derive the rest. The three
 personas are different progressive-disclosure *views* over this one AST.
 
-## Production TODO (stubbed here)
+## Production notes
 
 - **Gifter generation** is now wired to a real **Claude API** call (spec §6.1):
   the Cloudflare Pages Function `functions/api/generate.js` takes the free-text
@@ -103,8 +109,18 @@ personas are different progressive-disclosure *views* over this one AST.
   Accounts / payments / per-user quotas are deferred until the paid products are ready.
 - Tincture-rule validation (`computeWarn`) is a deterministic rules engine and stays
   client-side (cheaper/faster than an AI call); it re-checks whatever Claude returns.
-- **Exports** ship as SVG + print-resolution PNG with a blazon-text watermark
-  (`src/export.js`, code-split; reuses the Shield renderer / DrawShield bridge).
+- **Exports & the $19 unlock**: free exports are watermarked ("made with
+  blazon.fyi", `src/watermark.js`); the paid tier unlocks clean SVG / 300dpi PNG /
+  PDF (`src/export.js`, code-split; reuses the Shield renderer). Payment is
+  **Stripe Checkout** without webhooks: `functions/api/checkout.js` mints the
+  session, `functions/api/verify-payment.js` verifies `paid` on return and mints
+  an HMAC unlock token bound to the design hash (`functions/_lib/unlock.js`).
+  Needs `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `UNLOCK_SIGNING_SECRET` on the
+  Pages project — `/api/health` reports which of generate/turnstile/checkout are
+  live, and the UI hides the paid button until it is.
+- **Analytics**: `src/analytics.js` instruments the full funnel (31 events,
+  hardened property allowlist). It no-ops unless the build-time repo variable
+  `VITE_POSTHOG_KEY` is set.
 - The **heraldic model is now complete** (a full-achievement blazon AST — divisions,
   furs, lines of partition, ordinaries/diminutives/subordinaries, charge attitudes,
   marshalling). The **SVG renderer grows incrementally**: `Shield.jsx` draws the
@@ -114,8 +130,9 @@ personas are different progressive-disclosure *views* over this one AST.
   UX-design instrument**, never an in-product toggle. Depth is reached through
   **progressive disclosure** over the one AST, not a self-classification switch.
 - Not built yet: the blazon text editor (Serious mode, needs a parser),
-  Gallery/Library + persistence, the full Gift checkout + A3 certificate, real charge
-  SVG art (animals/objects via DrawShield or commissioned assets), PDF export.
+  print fulfilment (the "print" pricing tier is `comingSoon`; demand is measured
+  via `print_interest_clicked`), server-side export gating (unlock verification
+  exists server-side but exports are gated client-side for the MVP).
   See `design-reference/blazon-app-spec.md` for the complete spec.
 
 ## Deploy
