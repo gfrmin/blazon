@@ -13,7 +13,7 @@ import { C, F, goldBtn } from './theme.js';
 import { navigate, parseHash, parseQuery } from './router.js';
 import { encodeCoat, decodeCoat, designHash } from './share/codec.js';
 import { saveDesign, listDesigns, findByHash, setUnlocked as setLibraryUnlocked } from './library.js';
-import { recordUnlock, CHECKOUT_PENDING_KEY } from './unlock.js';
+import { recordUnlock, unlockIntentFromVerify, CHECKOUT_PENDING_KEY } from './unlock.js';
 import { headerControls } from './header-layout.js';
 import { track } from './analytics.js';
 import { raceWithTimeout } from './timeoutRace.js';
@@ -550,8 +550,9 @@ export default function Studio({ onBack }) {
           });
           const data = await res.json().catch(() => ({}));
           if (!cancelled) {
-            if (res.ok && data.paid && data.token && data.designHash) {
-              pendingUnlockRef.current = { hash: data.designHash, token: data.token };
+            const intent = unlockIntentFromVerify(res.ok, data);
+            if (intent) {
+              pendingUnlockRef.current = intent;
               // Force the finalize effect below to (re-)check NOW — the
               // common case is `design` already settled (a local decode)
               // well before this network round trip returns, so its own

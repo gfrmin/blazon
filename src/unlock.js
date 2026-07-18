@@ -76,6 +76,24 @@ export function isUnlocked(hash, storage = defaultStorage()) {
 }
 
 /**
+ * The unlock intent from an /api/verify-payment reply — the exact gate the
+ * Studio `?cs=` return-leg effect uses, extracted so the decision is unit-tested
+ * even though the surrounding React effect isn't. Returns { hash, token } to
+ * finalize ONLY on a fully-paid, fully-formed reply; otherwise null (treated as
+ * an abandoned/cancelled return — never a partial or false unlock).
+ * @param {boolean} ok    the response's `.ok` (HTTP 2xx)
+ * @param {object} data   the parsed JSON body (defensively coerced)
+ * @returns {{hash: string, token: string} | null}
+ */
+export function unlockIntentFromVerify(ok, data) {
+  const d = data || {};
+  if (ok && d.paid && d.token && d.designHash) {
+    return { hash: d.designHash, token: d.token };
+  }
+  return null;
+}
+
+/**
  * Record a purchase. `envelope` ({v:1, coat}) is captured as a FROZEN
  * snapshot — see file header. Returns true on a successful write, false on
  * storage failure (never throws).

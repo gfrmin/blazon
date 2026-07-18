@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { STORAGE_KEY, isUnlocked, recordUnlock, getUnlockedSnapshot } from '../unlock.js';
+import { STORAGE_KEY, isUnlocked, recordUnlock, getUnlockedSnapshot, unlockIntentFromVerify } from '../unlock.js';
 
 // A Map-backed storage stub — no real localStorage under `node --test`
 // (matches src/__tests__/library.test.js's own convention).
@@ -123,4 +123,25 @@ test('isUnlocked/getUnlockedSnapshot on an empty/falsy hash never throw and read
   assert.equal(isUnlocked('', storage), false);
   assert.equal(isUnlocked(undefined, storage), false);
   assert.equal(getUnlockedSnapshot('', storage), null);
+});
+
+// ── unlockIntentFromVerify — the ?cs= return-leg unlock gate (Studio uses
+//    this exact helper, so the decision is tested even though the effect glue
+//    around it isn't). ──
+
+test('unlockIntentFromVerify unlocks only on a fully-paid, fully-formed reply', () => {
+  assert.deepEqual(
+    unlockIntentFromVerify(true, { paid: true, token: 'tok', designHash: 'h1' }),
+    { hash: 'h1', token: 'tok' },
+  );
+});
+
+test('unlockIntentFromVerify returns null for every partial/failed reply (never a false unlock)', () => {
+  assert.equal(unlockIntentFromVerify(false, { paid: true, token: 'tok', designHash: 'h1' }), null); // non-2xx
+  assert.equal(unlockIntentFromVerify(true, { paid: false, token: 'tok', designHash: 'h1' }), null); // unpaid
+  assert.equal(unlockIntentFromVerify(true, { paid: true, designHash: 'h1' }), null);                // no token
+  assert.equal(unlockIntentFromVerify(true, { paid: true, token: 'tok' }), null);                    // no hash
+  assert.equal(unlockIntentFromVerify(true, {}), null);
+  assert.equal(unlockIntentFromVerify(true, null), null);                                             // defensive
+  assert.equal(unlockIntentFromVerify(true, undefined), null);
 });
