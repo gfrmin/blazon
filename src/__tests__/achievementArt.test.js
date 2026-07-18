@@ -21,35 +21,41 @@ function stubR2Fetch() {
   };
 }
 
-// ── Task 17 residual, closed here (task-19 brief §1): the shield art-prefetch
-// used to resolve only the FIRST mobile (kind:'charge') shield-charge group
-// via chargeGroup()'s `.find()`. A design whose `charges` array carries a
-// SECOND `kind:'charge'` entry left that second group's art unresolved. ──
+// ── SEC-2 (final whole-branch review): the shield art-prefetch resolves ONLY
+// the ONE mobile shield-charge group Shield.jsx's own toShieldView actually
+// draws (`.find()`-picked), REGARDLESS of how many `kind:'charge'` entries a
+// `charges` array carries — this reverts task-19's own broadening (which
+// walked EVERY such entry), because an anonymous `/api/og` GET could hand it
+// an arbitrarily long crafted `charges` array and turn that into an
+// unbounded fan-out of concurrent R2 fetches + recolour passes for art that
+// never gets composited (achievementArt.js's header has the full story). ──
 
-test('resolveAchievementArt: prefetches art for EVERY mobile shield-charge group, not just the first', async () => {
+test('resolveAchievementArt: resolves ONLY the first mobile shield-charge group\'s art — a second (or Nth) group\'s art is NOT prefetched (SEC-2 fan-out cap)', async () => {
   stubR2Fetch();
-  // Two DIFFERENT charge files (lion, eagle) on the shield — a shape the
-  // Studio UI never produces today (setCharge always replaces the single
-  // group), but a hand-crafted/decoded coat can carry.
+  // Many DISTINCT charge files on the shield — a shape the Studio UI never
+  // produces today (setCharge always replaces the single group), but a
+  // hand-crafted/decoded (e.g. `/api/og`) payload can carry, and in the
+  // adversarial case could carry hundreds of these.
+  const manyCharges = ['eagle', 'wolf', 'bear', 'stag', 'boar', 'horse', 'griffin', 'dragon'];
   const coat = {
     field: { tincture: 'Azure' },
     charges: [
       { role: 'secondary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } },
-      { role: 'peripheral', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'eagle' } },
+      ...manyCharges.map((key) => ({ role: 'peripheral', number: 1, tincture: 'Or', object: { kind: 'charge', key } })),
     ],
   };
 
   const cache = await resolveAchievementArt(coat);
 
   const lionFile = artFile('lion', 'rampant');
-  const eagleFile = artFile('eagle', undefined);
   const hex = tinctureHex('Or');
   assert.ok(cache[artKey(lionFile, hex)], `expected the FIRST mobile group's art (lion) to resolve: ${JSON.stringify(Object.keys(cache))}`);
-  assert.ok(cache[artKey(eagleFile, hex)], `expected the SECOND mobile group's art (eagle) to resolve too: ${JSON.stringify(Object.keys(cache))}`);
-  assert.equal(Object.keys(cache).length, 2);
+  // Exactly one entry — none of the other 8 crafted groups triggered a fetch,
+  // regardless of how many the payload carried.
+  assert.equal(Object.keys(cache).length, 1, `expected the prefetch bounded to 1 entry (only the drawn group), got ${JSON.stringify(Object.keys(cache))}`);
 });
 
-test('resolveAchievementArt: the broadened shield-charge loop coexists correctly with crest + supporters resolution (full achievement, one of each)', async () => {
+test('resolveAchievementArt: the first-group-only shield prefetch coexists correctly with crest + supporters resolution (full achievement, one of each, bounded to 3 total)', async () => {
   stubR2Fetch();
   const coat = withDefaultAchievement({
     field: { tincture: 'Vert' },
@@ -66,13 +72,14 @@ test('resolveAchievementArt: the broadened shield-charge loop coexists correctly
   const cache = await resolveAchievementArt(coat);
   const argentHex = tinctureHex('Argent');
   const orHex = tinctureHex('Or');
-  assert.ok(cache[artKey(artFile('wolf', 'passant'), argentHex)], 'first shield charge group');
-  assert.ok(cache[artKey(artFile('stag', 'passant'), argentHex)], 'second shield charge group');
+  assert.ok(cache[artKey(artFile('wolf', 'passant'), argentHex)], 'first (drawn) shield charge group');
+  assert.ok(!cache[artKey(artFile('stag', 'passant'), argentHex)], 'second shield charge group must NOT be prefetched (never drawn)');
   assert.ok(cache[artKey(artFile('griffin', 'rampant'), orHex)], 'crest');
   assert.ok(cache[artKey(artFile('dragon', 'rampant'), orHex)], 'supporters (matched pair)');
+  assert.equal(Object.keys(cache).length, 3, 'bounded to shield + crest + supporters — never grows with extra un-drawn shield-charge groups');
 });
 
-test('resolveAchievementArt: a design with a single mobile group (the ONLY shape the Studio UI ever produces) is unaffected by the broadening', async () => {
+test('resolveAchievementArt: a design with a single mobile group (the ONLY shape the Studio UI ever produces) still resolves it', async () => {
   stubR2Fetch();
   const coat = {
     field: { tincture: 'Gules' },

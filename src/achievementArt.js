@@ -23,18 +23,27 @@
 // implementation instead of two copies that can silently drift apart (this
 // is also where the Task 17 residual gets fixed, once, for both).
 //
-// BROADENED (task-19 brief §1, the Task 17 residual): `wantedArt` used to
-// resolve only `chargeGroup(coat)` — the SINGLE mobile shield-charge group
-// `.find()` returns — so a design whose `charges` array carried a SECOND
-// `kind:'charge'` entry (a hand-crafted/decoded coat; the generation prompt
-// asks for "at most one" but the schema doesn't enforce it) left that second
-// group's art unresolved, rendering blank under SSR. This now walks EVERY
-// `kind:'charge'` entry in `coat.charges`, not just the first. (Shield.jsx's
-// own `toShieldView` still only ever DRAWS the first such group via its own
-// `.find()` — a separate, narrower, deliberately out-of-scope limitation,
-// see task-19-report.md — so this widens what gets PRE-FETCHED defensively;
-// it costs nothing when there's only one, as there always is today via the
-// Studio editor.)
+// RE-NARROWED (SEC-2, final whole-branch review — reverses task-19's own
+// broadening below, which turned out to be an abuse vector): `wantedArt` used
+// to walk EVERY `kind:'charge'` entry in `coat.charges` — unbounded for a
+// crafted payload, since decodeCoat enforces no array-length cap. Shield.jsx's
+// `toShieldView` only ever DRAWS the FIRST such group (`.find()`), so a
+// payload with hundreds of distinct catalog keys turned one unauthenticated
+// `/api/og` GET into hundreds of concurrent R2 fetches + recolour passes for
+// art that never gets composited — the amplifier this closes. Back to
+// resolving only what's actually drawn: the first mobile charge group (same
+// `.find()` `toShieldView` itself uses), plus the (inherently-bounded-to-one-
+// each) crest/dexter/sinister. `/api/og`'s own new per-IP rate limit
+// (onRequestGet, this file's sibling) is the other half of SEC-2 — this is
+// the fan-out cap; that's the request-rate cap.
+//
+// (Superseded task-19 rationale, kept for context: a design whose `charges`
+// array carried a SECOND `kind:'charge'` entry — a hand-crafted/decoded coat;
+// the generation prompt asks for "at most one" but the schema doesn't enforce
+// it — left that second group's art unresolved, rendering blank under SSR.
+// That gap is real but narrow (never exercised via the Studio editor) and is
+// reopened by this revert; SEC-2's abuse vector is the one actually reachable
+// by an anonymous caller, so it wins.)
 //
 // This walks the design EXACTLY as `<Achievement backfill={false}>` will —
 // no `withDefaultAchievement` here. Callers that want the backfilled view
@@ -54,19 +63,20 @@ import { resolveCharge, artKey } from './charges/recolor.js';
 /**
  * Every (file, hex) pair the design actually needs art for, matching
  * Achievement.jsx's own gating exactly (hasArt-gated crest/supporters, the
- * matched-pair sinister→dexter fallback) plus EVERY mobile shield charge
- * group (Shield.jsx's `chargeArt` prop, passed straight through by
- * Achievement) — not just the one group `chargeGroup()`/`toShieldView` pick.
+ * matched-pair sinister→dexter fallback) plus the ONE mobile shield charge
+ * group Shield.jsx's own `toShieldView` actually draws (`.find()`-picked —
+ * SEC-2, final whole-branch review: bounded to what's rendered, not every
+ * `kind:'charge'` entry a crafted `charges` array might carry; see this
+ * file's header for the fan-out-amplifier this closes).
  * @param {object} coat  an already-normalized Coat (e.g. from decodeCoat)
  */
 function wantedArt(coat) {
   const a = coat.achievement || {};
   const wants = [];
 
-  for (const g of coat.charges || []) {
-    if (g.object && g.object.kind === 'charge' && hasArt(g.object.key, g.object.attitude)) {
-      wants.push({ file: artFile(g.object.key, g.object.attitude), hex: tinctureHex(g.tincture) });
-    }
+  const drawnCharge = (coat.charges || []).find((g) => g.object && g.object.kind === 'charge');
+  if (drawnCharge && hasArt(drawnCharge.object.key, drawnCharge.object.attitude)) {
+    wants.push({ file: artFile(drawnCharge.object.key, drawnCharge.object.attitude), hex: tinctureHex(drawnCharge.tincture) });
   }
 
   if (a.crest && a.crest.object && hasArt(a.crest.object.key, a.crest.object.attitude)) {
@@ -87,8 +97,8 @@ function wantedArt(coat) {
 }
 
 /**
- * Resolve every R2 charge file a design's escutcheon (ALL mobile charge
- * groups) + achievement (crest, both supporters) need, pre-fetched and
+ * Resolve every R2 charge file a design's escutcheon (its one drawn mobile
+ * charge group) + achievement (crest, both supporters) need, pre-fetched and
  * recoloured — ready to pass straight through as `<Achievement artCache={…}>`.
  * @param {import('./model/types.js').Coat|object} coatInput
  * @returns {Promise<Record<string, {viewBox: string, inner: string}>>} keyed
