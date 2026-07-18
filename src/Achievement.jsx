@@ -286,3 +286,16 @@ export default function Achievement({ design, shieldSlot = null, artCache = null
     </svg>
   );
 }
+
+// Re-exported (C1, final whole-branch review): the bare-shield export/OG
+// composition (src/bareShield.js) needs the SAME <Shield> component this
+// file already imports, INJECTED by its caller rather than imported
+// directly — export.js (Vite, JSX-capable) imports Shield.jsx itself, but
+// the og:image Cloudflare Function can't (no raw .jsx import — see that
+// Function's own header re: the `?raw`-suffix bundler gap this
+// generated-bundle mechanism already works around for Achievement.jsx
+// itself). Piggybacking on the SAME committed, pre-JSX-compiled generated
+// bundle (scripts/build-achievement-bundle.mjs) — rather than adding a
+// second generated file — means Shield reaches the Function pre-compiled at
+// zero extra build-script cost.
+export { Shield };

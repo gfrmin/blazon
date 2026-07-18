@@ -185,7 +185,7 @@ var CHARGES = {
   rose: { label: "Rose", formal: "rose", formalPl: "roses", plain: "rose", plainPl: "roses", category: "flora", tier: 1 },
   oakleaf: { label: "Oak leaf", formal: "oak leaf", formalPl: "oak leaves", plain: "oak leaf", plainPl: "oak leaves", category: "flora", tier: 3 }
 };
-var humanizeKey = (key) => key.replace(/[-_]/g, " ").trim();
+var humanizeKey = (key) => key ? key.replace(/[-_]/g, " ").trim() : "charge";
 var IRREGULAR_PL = {
   leaf: "leaves",
   wolf: "wolves",
@@ -372,11 +372,16 @@ var isMobileGroup = (g) => g?.object?.kind === "charge";
 var isBeastGroup = (g) => isMobileGroup(g) && CHARGES[g.object.key]?.category === "beast";
 var principalCharge = (c) => (c.charges || []).find(isMobileGroup) ?? null;
 var principalBeast = (c) => (c.charges || []).find(isBeastGroup) ?? null;
-var hasVendoredArt = (g) => !!g && hasArt(g.object.key, g.object.attitude);
+var hasVendoredArt = (g) => !!g && !!g.object && hasArt(g.object.key, g.object.attitude);
 function defaultCrest(c) {
   const g = principalCharge(c);
   if (g && hasVendoredArt(g)) return { role: g.role, number: 1, tincture: g.tincture, object: g.object };
   return { role: "primary", number: 1, tincture: "Or", object: LION_RAMPANT_OR_OBJECT };
+}
+var LION_RAMPANT_OR_CREST = { role: "primary", number: 1, tincture: "Or", object: LION_RAMPANT_OR_OBJECT };
+function crestOrFallback(existing, c) {
+  if (!existing) return defaultCrest(c);
+  return hasVendoredArt(existing) ? existing : LION_RAMPANT_OR_CREST;
 }
 function defaultSupporters(c) {
   const g = principalBeast(c);
@@ -389,7 +394,7 @@ function withDefaultAchievement(coatInput) {
   const existing = isObj(c.achievement) ? c.achievement : {};
   const liveries = liveryTinctures(c);
   const achievement = {
-    crest: existing.crest ?? defaultCrest(c),
+    crest: crestOrFallback(existing.crest, c),
     helm: existing.helm ?? { style: "esquire" },
     torse: existing.torse ?? { tinctures: [liveries.metal, liveries.colour] },
     mantling: existing.mantling ?? { tinctures: [liveries.colour, liveries.metal] },
@@ -1609,5 +1614,6 @@ function Achievement({ design, shieldSlot = null, artCache = null, ssr = false, 
   );
 }
 export {
+  Shield,
   Achievement as default
 };

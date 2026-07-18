@@ -51,6 +51,80 @@ test('achievementSVG: renders the FULL achievement (helm/torse/mantling/crest/su
   assert.match(svg, />Fortis et Fidelis</);
 });
 
+// ── C1 (final whole-branch review, the LATER merge gate): a stripAchievement'd
+// design ("Just the shield") must export/unfurl as a bare shield, mirroring
+// the on-screen split — NOT the full furniture task-19's own MERGE-BLOCKER
+// fix (above) made unconditional. Both polarities: stripped→bare (new here),
+// with-achievement→furniture (the MERGE-BLOCKER test above, unchanged). ──
+
+// A recognisable fingerprint of achievement FURNITURE that a bare shield must
+// never carry — the torse's own vendored-art viewBox (achievement-art/
+// manifest.js TORSE.viewBox). Unlike the mantling's viewBox (1000×1200 — the
+// SAME numbers as the export canvas itself, so not a safe marker), this is
+// unique to the torse asset and only ever appears when <Achievement> (not a
+// bare <Shield>) renders.
+const TORSE_VIEWBOX_MARKER = '204.998 42.041';
+
+function strippedDesign() {
+  return { field: { tincture: 'Azure' }, charges: [], motto: 'Fortis et Fidelis' }; // no `achievement` key at all
+}
+
+test('achievementSVG (stripped design, free tier): renders a BARE shield — no helm/torse/mantling furniture — with the motto as plain text, not the achievement composition', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG(strippedDesign());
+  // Same export canvas either way (footer band extends it further below).
+  assert.match(svg, /viewBox="0 0 1000 1460"/);
+  assert.doesNotMatch(svg, new RegExp(TORSE_VIEWBOX_MARKER));
+  // No esquire-helm viewBox either (achievement-art/manifest.js HELMETS).
+  assert.doesNotMatch(svg, /691\.118 800/);
+  // The escutcheon itself IS present.
+  assert.match(svg, /M18,14 H182/);
+  // The motto renders as its OWN plain <text> (bareShield.js) — present in
+  // the markup exactly once outside the footer caption/watermark/credit
+  // block, which never repeats the motto text itself.
+  assert.match(svg, />Fortis et Fidelis</);
+});
+
+test('achievementSVG (stripped design, clean tier): also a bare shield — furniture-free content is IDENTICAL to the free variant modulo the footer/metadata treatment', async () => {
+  stubR2Fetch();
+  const design = strippedDesign();
+  const free = await achievementSVG(design, { clean: false });
+  const clean = await achievementSVG(design, { clean: true });
+  assert.doesNotMatch(clean, new RegExp(TORSE_VIEWBOX_MARKER));
+  assert.match(clean, /viewBox="0 0 1000 1200"/);
+  assert.match(clean, /M18,14 H182/);
+  assert.match(clean, />Fortis et Fidelis</); // the bare-shield motto caption is part of the MAIN canvas, not the free-only footer — present in both tiers
+  assert.match(clean, /<metadata>/);
+  assert.doesNotMatch(clean, />made with blazon\.app</);
+  const ariaLabelOf = (s) => s.match(/aria-label="([^"]*)"/)[1];
+  assert.equal(ariaLabelOf(free), ariaLabelOf(clean));
+});
+
+test('achievementSVG (stripped design, no motto): no stray motto text, no crash — the caption is conditional', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG({ field: { tincture: 'Gules' }, charges: [] });
+  assert.match(svg, /^<svg/);
+  assert.doesNotMatch(svg, /undefined|\[object Object\]|NaN/);
+});
+
+test('achievementSVG (stripped design, free tier): the CC-BY-SA credit line is OMITTED for a purely geometric shield (no vendored art actually used) — mirrors the pre-task-19 bare-shield export\'s own gating', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG({ field: { tincture: 'Gules' }, charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'mullet' } }] });
+  assert.doesNotMatch(svg, /CC BY-SA/);
+});
+
+test('achievementSVG (stripped design, free tier): the CC-BY-SA credit line IS present when the bare shield\'s own charge uses vendored art', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG({ field: { tincture: 'Gules' }, charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } }] });
+  assert.match(svg, /CC BY-SA/);
+});
+
+test('achievementSVG: WITH-achievement polarity still renders full furniture (not a bare shield) — re-confirms the MERGE-BLOCKER lock still holds alongside the new stripped branch', async () => {
+  stubR2Fetch();
+  const svg = await achievementSVG(fullDesign());
+  assert.match(svg, new RegExp(TORSE_VIEWBOX_MARKER));
+});
+
 test('achievementSVG: has the react namespace on the root <svg> (React omits it by default)', async () => {
   stubR2Fetch();
   const svg = await achievementSVG(fullDesign());
@@ -198,9 +272,9 @@ test('achievementSVG (clean:true): the achievement CONTENT itself (crest/helm/to
   assert.match(free, />made with blazon\.app</);
 });
 
-// ── the broadened shield-charge prefetch, end-to-end through export.js ──
+// ── a design with a SECOND, un-drawn shield-charge group — end-to-end ──
 
-test('achievementSVG: a design with TWO mobile shield-charge groups renders BOTH (not blank) — the Task 17 residual, closed via the broadened prefetch', async () => {
+test('achievementSVG: a design with TWO mobile shield-charge groups still renders cleanly (only the first is ever drawn — SEC-2 bounds the art prefetch to that one, reverting task-19\'s broadened-but-abusable prefetch)', async () => {
   stubR2Fetch();
   const design = {
     field: { tincture: 'Azure' },
@@ -210,10 +284,10 @@ test('achievementSVG: a design with TWO mobile shield-charge groups renders BOTH
     ],
   };
   // Doesn't throw, and produces well-formed, non-empty markup — the shield
-  // itself only ever DRAWS its own single `.find()`-picked group (a
-  // separate, narrower limitation — see achievementArt.js's header), so this
-  // asserts the render succeeds cleanly with a design shaped this way,
-  // not that both groups paint on the escutcheon.
+  // itself only ever DRAWS its own single `.find()`-picked group, and
+  // (post-SEC-2) the art prefetch resolves only that same group — so this
+  // asserts the render succeeds cleanly with a design shaped this way, not
+  // that both groups paint on the escutcheon (they never did).
   const svg = await achievementSVG(design, { clean: true });
   assert.match(svg, /^<svg/);
   assert.doesNotMatch(svg, /undefined|\[object Object\]|NaN/);

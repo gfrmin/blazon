@@ -42,7 +42,16 @@ function stubR2Fetch() {
   };
 }
 
-const request = (path) => ({ url: `https://blazon.pages.dev${path}` });
+const request = (path, ip = '198.51.100.1') => ({
+  url: `https://blazon.pages.dev${path}`,
+  headers: { get: (name) => (name === 'cf-connecting-ip' ? ip : null) },
+});
+
+// Minimal in-memory KV stand-in (matches functions/_lib/__tests__/ratelimit.test.js's fakeKV).
+function fakeKV() {
+  const m = new Map();
+  return { async get(k) { return m.has(k) ? m.get(k) : null; }, async put(k, v) { m.set(k, v); } };
+}
 
 // A full achievement design with a real vendored-art crest/supporters
 // (lion, always has art — see src/charges/manifest.js's CHARGE_ART) and a
@@ -75,9 +84,39 @@ function twoTinctureLionDesign() {
 }
 
 test('bad payload -> 302 redirect to / (never touches resvg/wasm)', async () => {
-  const res = await onRequestGet({ request: request('/api/og/not-a-real-payload'), params: { payload: 'not-a-real-payload' } });
+  const res = await onRequestGet({ request: request('/api/og/not-a-real-payload'), params: { payload: 'not-a-real-payload' }, env: {} });
   assert.equal(res.status, 302);
   assert.equal(res.headers.get('location'), 'https://blazon.pages.dev/');
+});
+
+// ── SEC-2(a): rate limiting ─────────────────────────────────────────────
+
+test('SEC-2: rate limited -> 429, never reaches decodeCoat/resvg (env.RATE present)', async () => {
+  const kv = fakeKV();
+  const payload = 'not-a-real-payload'; // would 302 anyway — the point is it never gets that far once limited
+  let last;
+  // PER_IP_PER_MIN is 20 — exhaust it, then expect the 21st to 429.
+  for (let i = 0; i < 21; i++) {
+    last = await onRequestGet({ request: request(`/api/og/${payload}`), params: { payload }, env: { RATE: kv } });
+  }
+  assert.equal(last.status, 429);
+});
+
+test('SEC-2: env.RATE absent -> no rate limiting applied (fail-open, matches generate.js/checkout.js posture)', async () => {
+  const res = await onRequestGet({ request: request('/api/og/not-a-real-payload'), params: { payload: 'not-a-real-payload' }, env: {} });
+  assert.equal(res.status, 302); // reaches the normal bad-payload path, not a 429
+});
+
+test('SEC-2: different IPs are rate-limited independently', async () => {
+  const kv = fakeKV();
+  const payload = 'not-a-real-payload';
+  let lastA;
+  for (let i = 0; i < 21; i++) {
+    lastA = await onRequestGet({ request: request(`/api/og/${payload}`, '203.0.113.5'), params: { payload }, env: { RATE: kv } });
+  }
+  assert.equal(lastA.status, 429);
+  const resB = await onRequestGet({ request: request(`/api/og/${payload}`, '203.0.113.6'), params: { payload }, env: { RATE: kv } });
+  assert.equal(resB.status, 302, 'a different IP must not be blocked by the first IP\'s limit');
 });
 
 test('resolveAchievementArt: prefetches the shield charge + crest + both (matched-pair) supporters, none for a design with no achievement art', async () => {
@@ -179,6 +218,38 @@ test('renderAchievementSVG: pre-resvg markup contains every expected layer, aria
   assert.equal(countArtSvgs(svgNoCrest), 3);
 });
 
+// ── C1 (final whole-branch review, the LATER merge gate): the og:image must
+// unfurl a stripAchievement'd design as a bare shield, not a fully-helmeted
+// achievement — mirrors src/export.js's own C1 fix (src/bareShield.js,
+// shared). Both polarities: stripped→bare (new here), with-achievement→
+// furniture (the test above, unchanged). ──
+
+const TORSE_VIEWBOX_MARKER = '204.998 42.041'; // achievement-art/manifest.js TORSE.viewBox — unique to that asset
+
+test('renderAchievementSVG (stripped design — no achievement key): renders a BARE shield, no helm/torse/mantling furniture, motto as plain text', async () => {
+  stubR2Fetch();
+  const coat = { field: { tincture: 'Azure' }, charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } }], motto: 'Fortis et Fidelis' };
+  const svg = await renderAchievementSVG(coat);
+
+  assert.match(svg, /viewBox="0 0 1000 1200"/); // same canvas as the achievement path
+  assert.doesNotMatch(svg, new RegExp(TORSE_VIEWBOX_MARKER));
+  assert.doesNotMatch(svg, /691\.118 800/); // esquire helm viewBox
+  assert.equal(svg.includes('foreignObject'), false);
+  assert.equal(svg.includes('Fortis et Fidelis'), true);
+  assert.match(svg, new RegExp(`aria-label="${escapeReg(blazon(coat, 'formal'))}"`));
+
+  // The shield's own charge art (lion) still resolves and bakes in — the
+  // bare-shield branch reuses the SAME artCache the achievement branch would.
+  const countArtSvgs = (s) => (s.match(/viewBox="0 0 100 100"/g) || []).length;
+  assert.equal(countArtSvgs(svg), 1);
+});
+
+test('renderAchievementSVG: WITH-achievement polarity re-confirmed still renders full furniture (the test above locks the stripped branch; this locks the other one still works alongside it)', async () => {
+  stubR2Fetch();
+  const svg = await renderAchievementSVG(fullDesign());
+  assert.match(svg, new RegExp(TORSE_VIEWBOX_MARKER));
+});
+
 test('buildOgSVG: wraps the achievement centred on the fixed OG canvas, brand background', () => {
   const inner = '<svg viewBox="0 0 1000 1200">INNER</svg>';
   const out = buildOgSVG(inner);
@@ -245,6 +316,31 @@ test('resvg-wasm rasterises the REAL composed OG SVG to a valid PNG (magic bytes
   assert.equal(rendered.height, OG_HEIGHT);
   // A real, non-trivial image (a blank/broken render would be a tiny, mostly-empty PNG).
   assert.ok(png.length > 10_000, `expected a substantial PNG, got ${png.length} bytes`);
+});
+
+// C1 live-render confirmation (final whole-branch review): the REAL resvg
+// rasterise path, for a stripped design, produces a substantial, valid PNG —
+// not a blank/broken/tiny image. This is the automated counterpart to the
+// brief's own "render a stripped preset through the real export path and
+// Read the PNG" live check (done separately, see the task report).
+test('resvg-wasm rasterises a STRIPPED design (no achievement) to a valid, substantial PNG — the bare-shield composition survives the real rasteriser, not just string assertions', async () => {
+  stubR2Fetch();
+  const { Resvg, fontBytes } = await ensureResvgReady();
+
+  const coat = { field: { tincture: 'Azure' }, charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } }], motto: 'Fortis et Fidelis' };
+  const png = await renderDesignPng(Resvg, fontBytes, coat);
+
+  assert.deepEqual(Array.from(png.slice(0, 8)), [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.ok(png.length > 5_000, `expected a substantial PNG, got ${png.length} bytes`);
+
+  // The stripped render must NOT be pixel-identical to a full-achievement
+  // render of an otherwise-similar coat — a renderer that silently fell back
+  // to the achievement composition (the C1 bug) would still pass every
+  // string-based markup assertion elsewhere ONLY if the strings differ, but
+  // this catches it at the pixel level too, on the SAME rasteriser the
+  // production og:image Function actually uses.
+  const withAchievementPng = await renderDesignPng(Resvg, fontBytes, fullDesign());
+  assert.ok(!png.equals(withAchievementPng), 'expected the stripped (bare-shield) render to differ from the full-achievement render');
 });
 
 // Regression guard for the blank-motto bug (task-17-report.md §2 — resvg-wasm

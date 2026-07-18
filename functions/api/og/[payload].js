@@ -38,15 +38,34 @@
 // renderToStaticMarkup → resvg (<foreignObject> has no meaning to a static
 // SVG rasteriser). An out-of-vocab escutcheon degrades to whatever <Shield>
 // can draw locally instead — Task 12's own documented, acceptable fallback.
+//
+// C1 (final whole-branch review): a stripAchievement'd design ("Just the
+// shield") must unfurl as a bare shield, not a fully-helmeted achievement —
+// see src/bareShield.js's own header for the full story (shared with
+// src/export.js, the browser download path this Function's og:image mirrors).
+// `Shield` comes from the SAME generated bundle as `Achievement` (re-exported
+// there for exactly this — see that re-export's comment) rather than a raw
+// `.jsx` import, which this Function's bundler can't handle.
+//
+// SEC-2 (final whole-branch review): a per-IP rate limit (checkRates, same
+// KV/shape as generate.js/checkout.js) — this is an UNAUTHENTICATED GET, so
+// with no limit a crafted payload URL is a free-standing cost amplifier
+// (resvg-wasm rasterise + R2 charge fetches) hammerable with no client at all.
 // ─────────────────────────────────────────────────────────────────────────
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import Achievement from '../../_lib/achievement.generated.mjs';
+import Achievement, { Shield } from '../../_lib/achievement.generated.mjs';
 import { decodeCoat } from '../../../src/share/codec.js';
+import { hasAchievement } from '../../../src/model/achievement.js';
 import { resolveAchievementArt } from '../../_lib/achievementArt.js';
+import { bareShieldElement } from '../../../src/bareShield.js';
 import { svgToPng } from '../../_lib/resvg.js';
 import { OG_WIDTH, OG_HEIGHT } from '../../_lib/ogImage.js';
+import { checkRates } from '../../_lib/ratelimit.js';
+
+const PER_IP_PER_MIN = 20;
+const PER_IP_PER_DAY = 300;
 
 // Achievement's own fixed canvas (src/achievement-art/layout.js LAYOUT.viewBox).
 const ACH_W = 1000;
@@ -69,16 +88,30 @@ export function buildOgSVG(achievementSVG) {
   );
 }
 
-/** Render the achievement (real art prefetched) to a static SVG string.
- *  Exported for tests that only want to assert the pre-resvg markup. */
+/** Render the achievement — or, for a stripAchievement'd design, a bare
+ *  shield (C1 fix) — to a static SVG string. Exported for tests that only
+ *  want to assert the pre-resvg markup. */
 export async function renderAchievementSVG(coat) {
   const artCache = await resolveAchievementArt(coat);
   return renderToStaticMarkup(
-    React.createElement(Achievement, { design: coat, ssr: true, backfill: false, artCache }),
+    hasAchievement(coat)
+      ? React.createElement(Achievement, { design: coat, ssr: true, backfill: false, artCache })
+      : bareShieldElement(Shield, coat, artCache),
   );
 }
 
-export async function onRequestGet({ params, request }) {
+export async function onRequestGet({ params, request, env }) {
+  // SEC-2: rate-limit BEFORE any decode/render work — an unauthenticated GET
+  // with no limit is a free cost amplifier (see file header).
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  if (env.RATE) {
+    const { ok } = await checkRates(env.RATE, [
+      { baseKey: `og:ip:${ip}:min`, limit: PER_IP_PER_MIN, windowSec: 60 },
+      { baseKey: `og:ip:${ip}:day`, limit: PER_IP_PER_DAY, windowSec: 86400 },
+    ]);
+    if (!ok) return new Response('rate_limited', { status: 429, headers: { 'content-type': 'text/plain' } });
+  }
+
   let coat;
   try {
     coat = await decodeCoat(params.payload);

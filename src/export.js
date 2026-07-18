@@ -1,11 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────
 // Export — download the arms as a free, watermarked PNG, or (once unlocked,
 // M4/B7) the clean paid files: SVG, a 300dpi PNG, and a PDF. One module; it
-// renders the SAME `<Achievement>` composition the on-screen preview uses
-// (WYSIWYG — see task-19-brief §1, the MERGE-BLOCKER this closes: this file
-// used to render a bare `<Shield>` while the preview showed a full
+// renders the SAME composition the on-screen preview uses (WYSIWYG — see
+// task-19-brief §1, the MERGE-BLOCKER that closed: this file used to render
+// a bare `<Shield>` UNCONDITIONALLY while the preview showed a full
 // achievement) and the SSR seam (Task 12/17) both the og:image Function and
 // this file share via `resolveAchievementArt` (src/achievementArt.js).
+//
+// C1 (final whole-branch review, a LATER merge gate): task-19's fix went too
+// far the other way — it rendered `<Achievement>` UNCONDITIONALLY, so a
+// stripAchievement'd design ("Just the shield") shipped full helm/torse/
+// mantling furniture in every export despite the on-screen preview (and
+// ShareView/LibraryCard) correctly showing a bare shield. `achievementSVG`
+// now branches on `hasAchievement(coat)`, same as the preview — see
+// src/bareShield.js for the bare-shield composition this uses when false.
 //
 // `ssr: true` (Achievement.jsx) forces the local <Shield> unconditionally —
 // same tradeoff the og:image Function already made and ships in prod: an
@@ -26,9 +34,11 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import Achievement from './Achievement.jsx';
-import { blazon, normalize } from './heraldry.js';
+import Shield from './Shield.jsx';
+import { blazon, normalize, hasAchievement } from './heraldry.js';
 import { resolveAchievementArt } from './achievementArt.js';
 import { footerCaption } from './watermark.js';
+import { bareShieldElement } from './bareShield.js';
 
 const XMLNS = 'http://www.w3.org/2000/svg';
 
@@ -76,8 +86,9 @@ export function slug(design) {
 }
 
 /**
- * The full achievement (mantling/shield/helm/torse/crest/supporters/motto),
- * exactly as the preview shows it, as a self-contained SVG string.
+ * The full achievement (mantling/shield/helm/torse/crest/supporters/motto)
+ * — OR, for a stripAchievement'd design, a bare shield (C1 fix, src/bareShield.js)
+ * — exactly as the preview shows it, as a self-contained SVG string.
  *  - `clean: false` (default, free tier) — extends the canvas with a footer
  *    band carrying the formal blazon, the "made with blazon.app" watermark,
  *    and a small CC BY-SA credit line (the SAME considered mark, task-6
@@ -96,12 +107,18 @@ export function slug(design) {
 export async function achievementSVG(design, { clean = false } = {}) {
   const coat = normalize(design);
   const artCache = await resolveAchievementArt(coat);
+  // C1: mirror the on-screen split (ShareView.jsx/Studio.jsx/LibraryCard.jsx
+  // all gate on hasAchievement) — a design with NO achievement member must
+  // export/unfurl as a bare shield, never the full furniture.
+  const withFurniture = hasAchievement(coat);
   const markup = renderToStaticMarkup(
-    React.createElement(Achievement, { design: coat, ssr: true, backfill: false, artCache }),
+    withFurniture
+      ? React.createElement(Achievement, { design: coat, ssr: true, backfill: false, artCache })
+      : bareShieldElement(Shield, coat, artCache),
   );
-  // React omits the SVG namespace. Achievement.jsx's root <svg> also renders
-  // `width="100%"` with NO height attribute at all — correct for the on-screen
-  // DOM (a definite containing block), but a PERCENTAGE width has nothing to
+  // React omits the SVG namespace. The root <svg> also renders `width="100%"`
+  // with NO height attribute at all — correct for the on-screen DOM (a
+  // definite containing block), but a PERCENTAGE width has nothing to
   // resolve against for svgToPNG's standalone `<img src="data:...">`
   // rasterisation below: browsers fall back to an arbitrary default object
   // size there, and preserveAspectRatio then letterboxes the WHOLE
@@ -111,7 +128,9 @@ export async function achievementSVG(design, { clean = false } = {}) {
   // BOTH width and height to definite pixel values (the achievement's own
   // native canvas) so rasterisation is unambiguous, mirroring the
   // pre-task-19 bare-shield export (which always passed <Shield
-  // width={aNumber}> for the exact same reason).
+  // width={aNumber}> for the exact same reason). `bareShieldElement` builds
+  // its OWN root with the identical shape (viewBox 1000×1200, width="100%",
+  // no height) for exactly this reason — this whole pipeline stays shared.
   const withNS = markup
     .replace('<svg ', `<svg xmlns="${XMLNS}" `)
     .replace('width="100%"', `width="${ACH_W}" height="${ACH_H}"`);
@@ -127,9 +146,16 @@ export async function achievementSVG(design, { clean = false } = {}) {
   const mark = `<text x="500" y="${ACH_H + 135}" text-anchor="middle" font-family="Cormorant Garamond, Georgia, serif" font-size="45" font-style="italic" fill="#C9A24B" fill-opacity="0.62">${escapeXML(watermark)}</text>`;
   // The achievement ALWAYS carries vendored CC-BY-SA art (helm/torse/
   // mantling/motto-scroll furniture at minimum, plus the crest/supporters'
-  // default figural charges) — unlike the pre-Task-19 bare-shield export,
-  // this credit line is unconditional, not gated on a shield charge existing.
-  const credit = `<text x="500" y="${ACH_H + 200}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32.5" fill="#8a8674">Artwork: drawshield.net &amp; Wikimedia Commons · CC BY-SA</text>`;
+  // default figural charges), so the credit line is unconditional there. A
+  // BARE shield only carries vendored art when its own charge does (a purely
+  // geometric shield — mullet/roundel/etc. — uses none at all) — gate the
+  // credit on that (mirrors the pre-Task-19 bare-shield export's own
+  // `chargeArt ? credit : ''`), so the free PNG never claims third-party
+  // artwork it didn't actually use.
+  const creditNeeded = withFurniture || Object.keys(artCache).length > 0;
+  const credit = creditNeeded
+    ? `<text x="500" y="${ACH_H + 200}" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="32.5" fill="#8a8674">Artwork: drawshield.net &amp; Wikimedia Commons · CC BY-SA</text>`
+    : '';
   const extended = withNS
     .replace(`viewBox="0 0 ${ACH_W} ${ACH_H}"`, `viewBox="0 0 ${ACH_W} ${ACH_H + FREE_FOOTER_H}"`)
     .replace(`height="${ACH_H}"`, `height="${ACH_H + FREE_FOOTER_H}"`);
