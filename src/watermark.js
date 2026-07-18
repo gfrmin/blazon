@@ -9,10 +9,10 @@
 import { blazon } from './heraldry.js';
 
 // Task-6 brief §4, verbatim: the free PNG's credit line.
-export const WATERMARK_TEXT = 'made with blazon.app';
+export const WATERMARK_TEXT = 'made with blazon.fyi';
 
 /** The free-tier export footer text: the formal blazon (existing behaviour),
- *  plus the small "made with blazon.app" credit — a considered mark of its
+ *  plus the small "made with blazon.fyi" credit — a considered mark of its
  *  making, not a stamp. */
 export function footerCaption(design) {
   return {

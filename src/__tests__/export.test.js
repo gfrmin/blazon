@@ -95,7 +95,7 @@ test('achievementSVG (stripped design, clean tier): also a bare shield — furni
   assert.match(clean, /M18,14 H182/);
   assert.match(clean, />Fortis et Fidelis</); // the bare-shield motto caption is part of the MAIN canvas, not the free-only footer — present in both tiers
   assert.match(clean, /<metadata>/);
-  assert.doesNotMatch(clean, />made with blazon\.app</);
+  assert.doesNotMatch(clean, />made with blazon\.fyi</);
   const ariaLabelOf = (s) => s.match(/aria-label="([^"]*)"/)[1];
   assert.equal(ariaLabelOf(free), ariaLabelOf(clean));
 });
@@ -229,7 +229,7 @@ test('achievementSVG (free, default): extends the viewBox with a footer band car
   const svg = await achievementSVG(design);
   assert.match(svg, /viewBox="0 0 1000 1460"/); // 1200 + 260 footer band
   assert.match(svg, new RegExp(escapeReg(blazon(design, 'formal'))));
-  assert.match(svg, />made with blazon\.app</);
+  assert.match(svg, />made with blazon\.fyi</);
   assert.match(svg, /CC BY-SA/);
   assert.doesNotMatch(svg, /<metadata>/); // attribution is VISIBLE text here, not hidden metadata
 });
@@ -240,7 +240,7 @@ test('achievementSVG (clean:true): NO watermark caption, viewBox stays the achie
   const svg = await achievementSVG(design, { clean: true });
   assert.match(svg, /viewBox="0 0 1000 1200"/);
   assert.doesNotMatch(svg, /viewBox="0 0 1000 1460"/);
-  assert.doesNotMatch(svg, />made with blazon\.app</);
+  assert.doesNotMatch(svg, />made with blazon\.fyi</);
   assert.doesNotMatch(svg, new RegExp(escapeReg(blazon(design, 'formal')) + '<'));
   assert.match(svg, /<metadata>[^<]*CC BY-SA[^<]*<\/metadata>/);
 });
@@ -268,8 +268,8 @@ test('achievementSVG (clean:true): the achievement CONTENT itself (crest/helm/to
   }
 
   // ...and ONLY the free variant carries the visible caption/watermark text.
-  assert.doesNotMatch(clean, />made with blazon\.app</);
-  assert.match(free, />made with blazon\.app</);
+  assert.doesNotMatch(clean, />made with blazon\.fyi</);
+  assert.match(free, />made with blazon\.fyi</);
 });
 
 // ── a design with a SECOND, un-drawn shield-charge group — end-to-end ──

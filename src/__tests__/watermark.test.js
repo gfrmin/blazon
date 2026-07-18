@@ -10,9 +10,9 @@ test('footerCaption returns the formal blazon as the first line', () => {
   assert.ok(blazon.length > 0);
 });
 
-test('footerCaption always includes the "made with blazon.app" watermark', () => {
+test('footerCaption always includes the "made with blazon.fyi" watermark', () => {
   const { watermark } = footerCaption(PRESETS[0].design);
-  assert.equal(watermark, 'made with blazon.app');
+  assert.equal(watermark, 'made with blazon.fyi');
   assert.equal(watermark, WATERMARK_TEXT);
 });
 

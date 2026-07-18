@@ -61,7 +61,7 @@ jobs:
 
       - name: Post-deploy smoke — /api/health (toxic Turnstile half-config)
         env:
-          HEALTH_URL: https://blazon.pages.dev/api/health
+          HEALTH_URL: https://blazon-469.pages.dev/api/health
           SITE_KEY_SET: ${{ vars.VITE_TURNSTILE_SITE_KEY != '' }}
         run: |
           health="$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")" || { echo "::warning::health check unreachable (curl exit $?) — skipping config smoke"; exit 0; }

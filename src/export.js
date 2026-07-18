@@ -90,7 +90,7 @@ export function slug(design) {
  * — OR, for a stripAchievement'd design, a bare shield (C1 fix, src/bareShield.js)
  * — exactly as the preview shows it, as a self-contained SVG string.
  *  - `clean: false` (default, free tier) — extends the canvas with a footer
- *    band carrying the formal blazon, the "made with blazon.app" watermark,
+ *    band carrying the formal blazon, the "made with blazon.fyi" watermark,
  *    and a small CC BY-SA credit line (the SAME considered mark, task-6
  *    brief §4, now sized for the achievement canvas instead of a bare shield).
  *  - `clean: true` (paid tier, task-19 brief §5) — NO visible caption; the
