@@ -43,7 +43,13 @@ export function canRenderLocally(design) {
     if (o.line && o.line !== 'straight') return false;
     if (o.kind === 'ordinary' && !LOCAL_ORDINARIES.includes(o.key)) return false;
     if (o.kind === 'subordinary') return false; // none drawn locally yet
-    if (o.kind === 'charge' && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
+    if (o.kind === 'charge') {
+      // Shield.jsx's chargeSlots only lays out up to 3 charges; a higher count
+      // would draw fewer figures than the blazon names, so defer to DrawShield
+      // (which arranges any number faithfully).
+      if ((g.number || 1) > 3) return false;
+      if (!LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
+    }
   }
   return true;
 }

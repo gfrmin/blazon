@@ -140,17 +140,27 @@ function chargeSlots(n) {
   return [[58, 64], [142, 64], [100, 150]];
 }
 
-function ChargeShape({ type, cx, cy, hex, fieldHex }) {
+function ChargeShape({ type, cx, cy, hex }) {
   if (type === 'roundel') return <circle cx={cx} cy={cy} r={19} fill={hex} />;
   if (type === 'lozenge')
     return <polygon points={`${cx},${cy - 23} ${cx + 17},${cy} ${cx},${cy + 23} ${cx - 17},${cy}`} fill={hex} />;
-  if (type === 'crescent')
+  if (type === 'crescent') {
+    // The horns are cut with an SVG mask (transparent), NOT a circle painted in
+    // the field colour — so the crescent reads correctly over an ordinary or a
+    // divided field, where the notch would otherwise show the base field hex.
+    // The mask id is derived from position: two crescents sharing an id also
+    // share cx/cy, hence identical mask geometry, so any collision is harmless.
+    const mid = `crescent-${cx}-${cy}`.replace(/\./g, '_');
     return (
       <g>
-        <circle cx={cx} cy={cy} r={19} fill={hex} />
-        <circle cx={cx + 8} cy={cy - 5} r={16} fill={fieldHex} />
+        <mask id={mid}>
+          <circle cx={cx} cy={cy} r={19} fill="#fff" />
+          <circle cx={cx + 8} cy={cy - 5} r={16} fill="#000" />
+        </mask>
+        <circle cx={cx} cy={cy} r={19} fill={hex} mask={`url(#${mid})`} />
       </g>
     );
+  }
   if (type === 'mullet')
     return <polygon points={starPoints(cx, cy, 22)} fill={hex} stroke="rgba(0,0,0,.18)" strokeWidth={0.6} />;
   return null; // beasts/objects without art yet → graceful blank (offload to DrawShield later)
@@ -310,7 +320,7 @@ export default function Shield({
               // Geometric charges keep their crisp native shapes; everything else
               // renders from the vendored R2 art (if available).
               LOCAL_CHARGES.includes(ch.type) ? (
-                <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} fieldHex={fieldHex} />
+                <ChargeShape key={i} type={ch.type} cx={p[0]} cy={p[1]} hex={tinctureHex(ch.tincture)} />
               ) : hasArt(ch.type, ch.attitude) ? (
                 <VendoredCharge
                   key={i}

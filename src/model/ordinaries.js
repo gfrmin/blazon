@@ -20,21 +20,27 @@ export const ORDINARIES = {
 // Prototype order — drives the structure selector; unchanged.
 export const ORDINARY_ORDER = ['saltire', 'cross', 'fess', 'pale', 'bend', 'chevron'];
 
-// Diminutive (reduced) forms, used when an ordinary appears in multiples.
-export const DIMINUTIVES = {
-  fess: 'bar', pale: 'pallet', bend: 'bendlet', chevron: 'chevronel', cross: 'crosslet',
-};
+// The reduced ("diminutive") noun used when an ordinary appears in multiples
+// lives on each ORDINARIES entry's `diminutive` field — the single source
+// `ordinaryNoun` reads. (A standalone DIMINUTIVES map used to duplicate that
+// data; it was unreferenced and drifted — e.g. it alone carried cross→crosslet,
+// which is a distinct charge, not a repeated cross — so it was removed.)
 
 export const SUBORDINARIES = {
+  // `peripheral`: sits at the edge/around the field (not a central charge) — the
+  //   serializer blazons it in its own bucket, after the primary/secondary clause.
+  // `enclosing`: surrounds the whole field, so it reads "…within a bordure Or"
+  //   rather than being merely apposed ("…, a chief Or").
+  // `formal`: the singular noun when it differs from the key (flaunches → flaunch).
   chief:        { plain: 'band across the top', formalPl: 'chiefs',        tier: 2, peripheral: true },
   canton:       { plain: 'small corner square', formalPl: 'cantons',       tier: 3, peripheral: true },
-  bordure:      { plain: 'border',              formalPl: 'bordures',      tier: 2, peripheral: true },
-  orle:         { plain: 'inner border',        formalPl: 'orles',         tier: 3, peripheral: true },
-  tressure:     { plain: 'inner frame',         formalPl: 'tressures',     tier: 3, peripheral: true },
+  bordure:      { plain: 'border',              formalPl: 'bordures',      tier: 2, peripheral: true, enclosing: true },
+  orle:         { plain: 'inner border',        formalPl: 'orles',         tier: 3, peripheral: true, enclosing: true },
+  tressure:     { plain: 'inner frame',         formalPl: 'tressures',     tier: 3, peripheral: true, enclosing: true },
   inescutcheon: { plain: 'small shield',        formalPl: 'inescutcheons', tier: 3 },
   quarter:      { plain: 'corner quarter',      formalPl: 'quarters',      tier: 3, peripheral: true },
   gyron:        { plain: 'triangle from centre', formalPl: 'gyrons',       tier: 3 },
-  flaunches:    { plain: 'side arcs',           formalPl: 'flaunches',     tier: 3, peripheral: true },
+  flaunches:    { plain: 'side arcs',           formalPl: 'flaunches',     tier: 3, peripheral: true, formal: 'flaunch' },
   fret:         { plain: 'interlaced bands',    formalPl: 'frets',         tier: 3 },
   billet:       { plain: 'upright rectangle',   formalPl: 'billets',       tier: 3 },
   annulet:      { plain: 'ring',                formalPl: 'annulets',      tier: 3 },
@@ -42,14 +48,24 @@ export const SUBORDINARIES = {
 
 export const isOrdinary = (key) => Object.prototype.hasOwnProperty.call(ORDINARIES, key);
 export const isSubordinary = (key) => Object.prototype.hasOwnProperty.call(SUBORDINARIES, key);
+/** A subordinary that surrounds the whole field (bordure/orle/tressure) → "within a …". */
+export const isEnclosingSubordinary = (key) => !!SUBORDINARIES[key]?.enclosing;
+/** A subordinary that belongs in the trailing peripheral bucket (edge/around the field). */
+export const isPeripheralSubordinary = (key) => !!SUBORDINARIES[key]?.peripheral;
 
 /** The blazon noun for an ordinary/subordinary, singular or plural (diminutive-aware). */
 export function ordinaryNoun(key, { plural = false, diminutive = false } = {}) {
-  if (SUBORDINARIES[key]) return plural ? SUBORDINARIES[key].formalPl : key;
+  const sub = SUBORDINARIES[key];
+  if (sub) return plural ? sub.formalPl : (sub.formal || key);
   const o = ORDINARIES[key];
   if (!o) return key;
   if ((diminutive || plural) && o.diminutive) {
     return plural ? `${o.diminutive}s` : o.diminutive;
   }
   return plural ? o.formalPl : key;
+}
+
+/** The plain-English gloss for an ordinary/subordinary ("horizontal band", "border"). */
+export function ordinaryPlain(key) {
+  return ORDINARIES[key]?.plain || SUBORDINARIES[key]?.plain || key;
 }

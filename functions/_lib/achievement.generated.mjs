@@ -111,27 +111,37 @@ var ORDINARIES = {
   pile: { plain: "wedge", formalPl: "piles", tier: 3 }
 };
 var SUBORDINARIES = {
+  // `peripheral`: sits at the edge/around the field (not a central charge) — the
+  //   serializer blazons it in its own bucket, after the primary/secondary clause.
+  // `enclosing`: surrounds the whole field, so it reads "…within a bordure Or"
+  //   rather than being merely apposed ("…, a chief Or").
+  // `formal`: the singular noun when it differs from the key (flaunches → flaunch).
   chief: { plain: "band across the top", formalPl: "chiefs", tier: 2, peripheral: true },
   canton: { plain: "small corner square", formalPl: "cantons", tier: 3, peripheral: true },
-  bordure: { plain: "border", formalPl: "bordures", tier: 2, peripheral: true },
-  orle: { plain: "inner border", formalPl: "orles", tier: 3, peripheral: true },
-  tressure: { plain: "inner frame", formalPl: "tressures", tier: 3, peripheral: true },
+  bordure: { plain: "border", formalPl: "bordures", tier: 2, peripheral: true, enclosing: true },
+  orle: { plain: "inner border", formalPl: "orles", tier: 3, peripheral: true, enclosing: true },
+  tressure: { plain: "inner frame", formalPl: "tressures", tier: 3, peripheral: true, enclosing: true },
   inescutcheon: { plain: "small shield", formalPl: "inescutcheons", tier: 3 },
   quarter: { plain: "corner quarter", formalPl: "quarters", tier: 3, peripheral: true },
   gyron: { plain: "triangle from centre", formalPl: "gyrons", tier: 3 },
-  flaunches: { plain: "side arcs", formalPl: "flaunches", tier: 3, peripheral: true },
+  flaunches: { plain: "side arcs", formalPl: "flaunches", tier: 3, peripheral: true, formal: "flaunch" },
   fret: { plain: "interlaced bands", formalPl: "frets", tier: 3 },
   billet: { plain: "upright rectangle", formalPl: "billets", tier: 3 },
   annulet: { plain: "ring", formalPl: "annulets", tier: 3 }
 };
+var isEnclosingSubordinary = (key) => !!SUBORDINARIES[key]?.enclosing;
 function ordinaryNoun(key, { plural = false, diminutive = false } = {}) {
-  if (SUBORDINARIES[key]) return plural ? SUBORDINARIES[key].formalPl : key;
+  const sub = SUBORDINARIES[key];
+  if (sub) return plural ? sub.formalPl : sub.formal || key;
   const o = ORDINARIES[key];
   if (!o) return key;
   if ((diminutive || plural) && o.diminutive) {
     return plural ? `${o.diminutive}s` : o.diminutive;
   }
   return plural ? o.formalPl : key;
+}
+function ordinaryPlain(key) {
+  return ORDINARIES[key]?.plain || SUBORDINARIES[key]?.plain || key;
 }
 
 // src/model/charges.js
@@ -313,7 +323,9 @@ function legacyChargeGroup(c) {
     role: "secondary",
     number: c.qty || 1,
     tincture: c.tincture,
-    object: { kind: "charge", key: c.type }
+    // Preserve attitude — the live landing reel's "lion rampant" is a legacy
+    // shape; dropping it blazoned (and aria-labelled) as a bare "a lion".
+    object: { kind: "charge", key: c.type, ...c.attitude ? { attitude: c.attitude } : {} }
   };
 }
 function normalize(d) {
@@ -337,7 +349,9 @@ function normalize(d) {
       ...d.rationale ? { rationale: d.rationale } : {}
     };
   }
-  if (typeof d.field === "string") return { field: { tincture: d.field }, charges: d.charges || [] };
+  if (typeof d.field === "string") {
+    return { field: { tincture: d.field }, charges: (d.charges || []).map(legacyChargeGroup) };
+  }
   return null;
 }
 var fieldTinctureCandidates = (field) => {
@@ -481,14 +495,17 @@ function serializeList(groups) {
 function groupPlain(g) {
   const n = g.number || 1;
   const plural = n > 1;
-  const colour = tincturePlain(g.tincture);
   const obj = g.object;
-  const noun = isOrdinaryLike(obj) ? ordinaryNoun(obj.key, { plural, diminutive: obj.diminutive }) : chargePlain(obj.key, plural);
-  const lead = plural ? numWord(n) : aOrAn(colour);
-  let s = `${lead} ${colour} ${noun}`;
+  const noun = isOrdinaryLike(obj) ? ordinaryPlain(obj.key) : chargePlain(obj.key, plural);
+  const isProper = g.tincture === "proper";
+  const colour = isProper ? "" : tincturePlain(g.tincture);
+  const head = colour ? `${colour} ${noun}` : noun;
+  const lead = plural ? numWord(n) : aOrAn(head);
+  let s = `${lead} ${head}`;
   if (obj.kind === "charge" && obj.attitude && ATTITUDES[obj.attitude]) {
     s += ` ${ATTITUDES[obj.attitude].plain}`;
   }
+  if (isProper) s += " in natural colours";
   return s;
 }
 function byRole(charges) {
@@ -496,6 +513,15 @@ function byRole(charges) {
   for (const g of charges || []) (r[g.role] || r.secondary).push(g);
   return r;
 }
+function tertiaryFormal(tertiary, primary) {
+  const host = primary[0];
+  const list = serializeList(tertiary);
+  if (host && isOrdinaryLike(host.object)) {
+    return `on the ${objectNounFormal(host.object, false)}, ${list}`;
+  }
+  return list;
+}
+var isChiefGroup = (g) => g.object?.key === "chief";
 function coatFormal(coat2) {
   if (coat2.marshalling) return marshalledFormal(coat2.marshalling);
   const field = fieldFormal(coat2.field);
@@ -503,13 +529,22 @@ function coatFormal(coat2) {
   if (!primary.length && !secondary.length && !tertiary.length && !peripheral.length) return field;
   const segments = [];
   if (primary.length === 1 && isOrdinaryLike(primary[0].object) && secondary.length) {
-    segments.push(`${groupFormal(primary[0], true)} between ${serializeList(secondary)}`);
+    const includeOrd = primary[0].tincture !== secondary[0].tincture;
+    segments.push(`${groupFormal(primary[0], includeOrd)} between ${serializeList(secondary)}`);
   } else {
     segments.push(serializeList(primary.concat(secondary)));
   }
-  if (tertiary.length) segments.push(serializeList(tertiary));
-  if (peripheral.length) segments.push(serializeList(peripheral));
-  return `${field}, ${segments.filter(Boolean).join(", ")}`;
+  if (tertiary.length) segments.push(tertiaryFormal(tertiary, primary));
+  const enclosing = peripheral.filter((g) => isEnclosingSubordinary(g.object?.key));
+  const apposed = peripheral.filter((g) => !isEnclosingSubordinary(g.object?.key)).sort((a, b) => (isChiefGroup(a) ? 1 : 0) - (isChiefGroup(b) ? 1 : 0));
+  const commaParts = [...segments.filter(Boolean), ...apposed.map((g) => groupFormal(g, true))];
+  if (!commaParts.length) {
+    const only = enclosing.map((g) => groupFormal(g, true));
+    return only.length ? `${field}, ${only.join(", ")}` : field;
+  }
+  let out = `${field}, ${commaParts.join(", ")}`;
+  for (const g of enclosing) out += ` within ${groupFormal(g, true)}`;
+  return out;
 }
 function coatPlain(coat2) {
   if (coat2.marshalling) return marshalledPlain(coat2.marshalling);
@@ -811,7 +846,10 @@ function canRenderLocally(design) {
     if (o.line && o.line !== "straight") return false;
     if (o.kind === "ordinary" && !LOCAL_ORDINARIES.includes(o.key)) return false;
     if (o.kind === "subordinary") return false;
-    if (o.kind === "charge" && !LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
+    if (o.kind === "charge") {
+      if ((g.number || 1) > 3) return false;
+      if (!LOCAL_CHARGES.includes(o.key) && !hasArt(o.key, o.attitude)) return false;
+    }
   }
   return true;
 }
@@ -905,15 +943,20 @@ function chargeSlots(n) {
   if (n === 2) return [[60, 70], [140, 70]];
   return [[58, 64], [142, 64], [100, 150]];
 }
-function ChargeShape({ type, cx, cy, hex, fieldHex }) {
+function ChargeShape({ type, cx, cy, hex }) {
   if (type === "roundel") return /* @__PURE__ */ jsx("circle", { cx, cy, r: 19, fill: hex });
   if (type === "lozenge")
     return /* @__PURE__ */ jsx("polygon", { points: `${cx},${cy - 23} ${cx + 17},${cy} ${cx},${cy + 23} ${cx - 17},${cy}`, fill: hex });
-  if (type === "crescent")
+  if (type === "crescent") {
+    const mid = `crescent-${cx}-${cy}`.replace(/\./g, "_");
     return /* @__PURE__ */ jsxs("g", { children: [
-      /* @__PURE__ */ jsx("circle", { cx, cy, r: 19, fill: hex }),
-      /* @__PURE__ */ jsx("circle", { cx: cx + 8, cy: cy - 5, r: 16, fill: fieldHex })
+      /* @__PURE__ */ jsxs("mask", { id: mid, children: [
+        /* @__PURE__ */ jsx("circle", { cx, cy, r: 19, fill: "#fff" }),
+        /* @__PURE__ */ jsx("circle", { cx: cx + 8, cy: cy - 5, r: 16, fill: "#000" })
+      ] }),
+      /* @__PURE__ */ jsx("circle", { cx, cy, r: 19, fill: hex, mask: `url(#${mid})` })
     ] });
+  }
   if (type === "mullet")
     return /* @__PURE__ */ jsx("polygon", { points: starPoints(cx, cy, 22), fill: hex, stroke: "rgba(0,0,0,.18)", strokeWidth: 0.6 });
   return null;
@@ -1031,7 +1074,7 @@ function Shield({
               children: chargeSlots(ch.qty || 1).map((p, i) => (
                 // Geometric charges keep their crisp native shapes; everything else
                 // renders from the vendored R2 art (if available).
-                LOCAL_CHARGES.includes(ch.type) ? /* @__PURE__ */ jsx(ChargeShape, { type: ch.type, cx: p[0], cy: p[1], hex: tinctureHex(ch.tincture), fieldHex }, i) : hasArt(ch.type, ch.attitude) ? /* @__PURE__ */ jsx(
+                LOCAL_CHARGES.includes(ch.type) ? /* @__PURE__ */ jsx(ChargeShape, { type: ch.type, cx: p[0], cy: p[1], hex: tinctureHex(ch.tincture) }, i) : hasArt(ch.type, ch.attitude) ? /* @__PURE__ */ jsx(
                   VendoredCharge,
                   {
                     file: artFile(ch.type, ch.attitude),

@@ -19,7 +19,7 @@ export {
   tinctureFormal, tincturePlain, tinctureHex,
 } from './model/tinctures.js';
 export { LINES, LINE_ORDER, DIVISIONS, DIVISION_ORDER, TREATMENTS } from './model/field.js';
-export { ORDINARIES, ORDINARY_ORDER, DIMINUTIVES, SUBORDINARIES, ordinaryNoun } from './model/ordinaries.js';
+export { ORDINARIES, ORDINARY_ORDER, SUBORDINARIES, ordinaryNoun } from './model/ordinaries.js';
 export {
   CHARGES, CHARGE_ORDER, ATTITUDES,
   categoryOf, validAttitudesFor, defaultAttitudeFor, attitudeValid, chargeNoun, chargePlain,
@@ -33,12 +33,15 @@ export { blazon } from './model/blazon.js';
 export { computeWarn } from './model/validate.js';
 export { toDrawShieldBlazon, drawShieldURL } from './model/drawshield.js';
 
-import { TINCTURES, METALS, COLOURS } from './model/tinctures.js';
+import { METALS, COLOURS, contrastClass } from './model/tinctures.js';
 
 // ── The contrast engine (keeps generated/cycled designs tincture-rule valid) ─
-// metal field → must use a colour; colour field → must use a metal.
+// metal field → must use a colour; colour field → must use a metal. A neutral
+// field (fur / proper / unknown key) has no class to oppose, so it falls to the
+// metals pool — metals read cleanly over anything, and `contrastClass` never
+// throws on an out-of-table key the way `TINCTURES[field].cls` did.
 export function contrastPool(field) {
-  return TINCTURES[field].cls === 'metal' ? COLOURS : METALS;
+  return contrastClass(field) === 'metal' ? COLOURS : METALS;
 }
 export function pickContrast(field, avoid) {
   const pool = contrastPool(field);

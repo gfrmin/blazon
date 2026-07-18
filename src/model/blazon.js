@@ -12,7 +12,7 @@
 
 import { tinctureFormal, tincturePlain } from './tinctures.js';
 import { DIVISIONS, isRepeatingDivision } from './field.js';
-import { ordinaryNoun, isOrdinary, isSubordinary } from './ordinaries.js';
+import { ordinaryNoun, ordinaryPlain, isEnclosingSubordinary } from './ordinaries.js';
 import { chargeNoun, chargePlain, ATTITUDES } from './charges.js';
 import { normalize, HELMETS } from './achievement.js';
 
@@ -100,16 +100,22 @@ function serializeList(groups) {
 function groupPlain(g) {
   const n = g.number || 1;
   const plural = n > 1;
-  const colour = tincturePlain(g.tincture);
   const obj = g.object;
-  const noun = isOrdinaryLike(obj)
-    ? ordinaryNoun(obj.key, { plural, diminutive: obj.diminutive })
-    : chargePlain(obj.key, plural);
-  const lead = plural ? numWord(n) : aOrAn(colour);
-  let s = `${lead} ${colour} ${noun}`;
+  // Plain mode is jargon-free: an ordinary reads by its gloss ("horizontal
+  // band"), not its heraldic noun ("fess").
+  const noun = isOrdinaryLike(obj) ? ordinaryPlain(obj.key) : chargePlain(obj.key, plural);
+  // 'proper' ("in natural colours") and a missing tincture are NOT leading
+  // colour adjectives — trailing/absent, so we say "a lion in natural colours"
+  // and "three stars" rather than "an in natural colours lion" / "a  star".
+  const isProper = g.tincture === 'proper';
+  const colour = isProper ? '' : tincturePlain(g.tincture);
+  const head = colour ? `${colour} ${noun}` : noun;
+  const lead = plural ? numWord(n) : aOrAn(head);
+  let s = `${lead} ${head}`;
   if (obj.kind === 'charge' && obj.attitude && ATTITUDES[obj.attitude]) {
     s += ` ${ATTITUDES[obj.attitude].plain}`;
   }
+  if (isProper) s += ' in natural colours';
   return s;
 }
 
@@ -120,6 +126,20 @@ function byRole(charges) {
   return r;
 }
 
+// Tertiary charges sit ON the primary ordinary ("on the fess, three mullets
+// Gules") — referenced by its definite article since the ordinary is already
+// named in the main clause. With no ordinary host they degrade to a bare list.
+function tertiaryFormal(tertiary, primary) {
+  const host = primary[0];
+  const list = serializeList(tertiary);
+  if (host && isOrdinaryLike(host.object)) {
+    return `on the ${objectNounFormal(host.object, false)}, ${list}`;
+  }
+  return list;
+}
+
+const isChiefGroup = (g) => g.object?.key === 'chief';
+
 function coatFormal(coat) {
   if (coat.marshalling) return marshalledFormal(coat.marshalling);
   const field = fieldFormal(coat.field);
@@ -128,13 +148,32 @@ function coatFormal(coat) {
 
   const segments = [];
   if (primary.length === 1 && isOrdinaryLike(primary[0].object) && secondary.length) {
-    segments.push(`${groupFormal(primary[0], true)} between ${serializeList(secondary)}`);
+    // Elision across "between": when the ordinary shares the following charges'
+    // tincture, the colour is named only once, at the end ("a chevron between
+    // three mullets Or"), not repeated ("a chevron Or between three mullets Or").
+    const includeOrd = primary[0].tincture !== secondary[0].tincture;
+    segments.push(`${groupFormal(primary[0], includeOrd)} between ${serializeList(secondary)}`);
   } else {
     segments.push(serializeList(primary.concat(secondary)));
   }
-  if (tertiary.length) segments.push(serializeList(tertiary));
-  if (peripheral.length) segments.push(serializeList(peripheral));
-  return `${field}, ${segments.filter(Boolean).join(', ')}`;
+  if (tertiary.length) segments.push(tertiaryFormal(tertiary, primary));
+
+  // Peripheral subordinaries: enclosing ones ("within a bordure Or") hang off
+  // the clause with no comma; the rest are apposed, with any chief blazoned last.
+  const enclosing = peripheral.filter((g) => isEnclosingSubordinary(g.object?.key));
+  const apposed = peripheral
+    .filter((g) => !isEnclosingSubordinary(g.object?.key))
+    .sort((a, b) => (isChiefGroup(a) ? 1 : 0) - (isChiefGroup(b) ? 1 : 0));
+
+  const commaParts = [...segments.filter(Boolean), ...apposed.map((g) => groupFormal(g, true))];
+  if (!commaParts.length) {
+    // Nothing but enclosing subordinaries — appose them to the field directly.
+    const only = enclosing.map((g) => groupFormal(g, true));
+    return only.length ? `${field}, ${only.join(', ')}` : field;
+  }
+  let out = `${field}, ${commaParts.join(', ')}`;
+  for (const g of enclosing) out += ` within ${groupFormal(g, true)}`;
+  return out;
 }
 
 function coatPlain(coat) {

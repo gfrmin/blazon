@@ -31,10 +31,37 @@ test('setOrdinary seeds a contrasting tincture (colour field → metal)', () => 
   assert.equal(blazon(c, 'formal'), 'Azure, a fess Or');
 });
 
+test('setOrdinary on a peripheral subordinary assigns role "peripheral" (blazons "within"/apposed)', () => {
+  const c = setOrdinary(plain('Azure'), 'bordure');
+  assert.equal(primaryGroup(c).role, 'peripheral');
+  assert.equal(blazon(c, 'formal'), 'Azure, a bordure Or');
+});
+
+test('swapping a central ordinary for a peripheral subordinary updates the role too', () => {
+  let c = setOrdinary(plain('Azure'), 'fess'); // role primary
+  c = setOrdinary(c, 'chief'); // now peripheral
+  assert.equal(primaryGroup(c).role, 'peripheral');
+  assert.equal(primaryGroup(c).object.key, 'chief');
+});
+
+test('setChargeNumber clamps to the schema ceiling of 6 (not 8) and floor of 1', () => {
+  let c = setCharge(plain('Azure'), 'mullet');
+  assert.equal(setChargeNumber(c, 99).charges.find((g) => g.object.kind === 'charge').number, 6);
+  assert.equal(setChargeNumber(c, 0).charges.find((g) => g.object.kind === 'charge').number, 1);
+});
+
+test('coat mutators/selectors tolerate a null coat without throwing', () => {
+  assert.doesNotThrow(() => setOrdinary(null, 'fess'));
+  assert.doesNotThrow(() => setFieldTincture(null, 'Gules'));
+  assert.equal(fieldTincture(null), null);
+  assert.equal(primaryGroup(null), null);
+});
+
 test('setCharge adds a secondary group; number + ordinary compose', () => {
   let c = setOrdinary(plain('Azure'), 'chevron');
   c = setChargeNumber(setCharge(c, 'mullet'), 3);
-  assert.equal(blazon(c, 'formal'), 'Azure, a chevron Or between three mullets Or');
+  // Chevron and mullets are both Or — the tincture elides across "between".
+  assert.equal(blazon(c, 'formal'), 'Azure, a chevron between three mullets Or');
 });
 
 test('setDivision divides the field with a contrasting second tincture', () => {

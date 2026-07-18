@@ -59,13 +59,15 @@ function isCoat(d) {
   );
 }
 
-/** Wrap a legacy charge { type, tincture, qty } as a secondary ChargeGroup. */
+/** Wrap a legacy charge { type, tincture, qty, attitude? } as a secondary ChargeGroup. */
 function legacyChargeGroup(c) {
   return {
     role: 'secondary',
     number: c.qty || 1,
     tincture: c.tincture,
-    object: { kind: 'charge', key: c.type },
+    // Preserve attitude — the live landing reel's "lion rampant" is a legacy
+    // shape; dropping it blazoned (and aria-labelled) as a bare "a lion".
+    object: { kind: 'charge', key: c.type, ...(c.attitude ? { attitude: c.attitude } : {}) },
   };
 }
 
@@ -95,8 +97,13 @@ export function normalize(d) {
       ...(d.rationale ? { rationale: d.rationale } : {}),
     };
   }
-  // A bare partial (e.g. just a field tincture) — coerce defensively.
-  if (typeof d.field === 'string') return { field: { tincture: d.field }, charges: d.charges || [] };
+  // A bare partial (e.g. just a field tincture) — coerce defensively. Any
+  // `charges` here are non-canonical (a canonical charge array would have made
+  // isCoat() true above), so they're legacy-shaped and must be wrapped, not
+  // passed raw — blazon()/render read `g.object`, which raw legacy charges lack.
+  if (typeof d.field === 'string') {
+    return { field: { tincture: d.field }, charges: (d.charges || []).map(legacyChargeGroup) };
+  }
   return null;
 }
 

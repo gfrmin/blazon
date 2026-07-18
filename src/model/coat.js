@@ -11,13 +11,16 @@
 
 import { contrastClass } from './tinctures.js';
 import { DIVISIONS } from './field.js';
-import { isSubordinary } from './ordinaries.js';
+import { isSubordinary, isPeripheralSubordinary } from './ordinaries.js';
 import { defaultAttitudeFor } from './charges.js';
 import {
   normalize, hasAchievement, liveryTinctures, withDefaultAchievement, stripAchievement,
 } from './achievement.js';
 
-const C = (coat) => normalize(coat) || coat;
+// `|| {}` at the tail so a null/unrecognised input yields an empty coat the
+// mutators can safely spread and read `.charges`/`.field` off — normalize(null)
+// is null, and `setOrdinary(null)`/selectors must not throw on `.charges`.
+const C = (coat) => normalize(coat) || coat || {};
 const isStructure = (g) => g.object && (g.object.kind === 'ordinary' || g.object.kind === 'subordinary');
 const isMobile = (g) => g.object && g.object.kind === 'charge';
 
@@ -94,10 +97,14 @@ export function setDivisionLine(coat, line) {
 export function setOrdinary(coat, key) {
   const c = C(coat);
   const kind = isSubordinary(key) ? 'subordinary' : 'ordinary';
+  // Peripheral subordinaries (bordure, chief, canton…) belong in the trailing
+  // "…within a bordure Or" / "…, a chief Or" bucket, not the primary/"between"
+  // clause a central ordinary drives — so they carry role 'peripheral'.
+  const role = isPeripheralSubordinary(key) ? 'peripheral' : 'primary';
   if (primaryGroup(c)) {
-    return updateGroup(c, isStructure, (g) => ({ ...g, object: { ...g.object, kind, key } }));
+    return updateGroup(c, isStructure, (g) => ({ ...g, role, object: { ...g.object, kind, key } }));
   }
-  return addGroup(c, { role: 'primary', number: 1, tincture: seedContrast(c), object: { kind, key } });
+  return addGroup(c, { role, number: 1, tincture: seedContrast(c), object: { kind, key } });
 }
 export const clearOrdinary = (coat) => removeGroup(C(coat), isStructure);
 export const setOrdinaryTincture = (coat, t) => updateGroup(C(coat), isStructure, (g) => ({ ...g, tincture: t }));
@@ -117,8 +124,10 @@ export const clearCharge = (coat) => removeGroup(C(coat), isMobile);
 export const setChargeTincture = (coat, t) => updateGroup(C(coat), isMobile, (g) => ({ ...g, tincture: t }));
 export const setChargeAttitude = (coat, attitude) =>
   updateGroup(C(coat), isMobile, (g) => ({ ...g, object: { ...g.object, attitude } }));
+// Clamp to 6 — the same ceiling the generation tool schema enforces, so a
+// hand-edited count can't exceed what the model/renderer treat as valid.
 export const setChargeNumber = (coat, n) =>
-  updateGroup(C(coat), isMobile, (g) => ({ ...g, number: Math.max(1, Math.min(8, n)) }));
+  updateGroup(C(coat), isMobile, (g) => ({ ...g, number: Math.max(1, Math.min(6, n)) }));
 export const setArrangement = (coat, arrangement) =>
   updateGroup(C(coat), isMobile, (g) => ({ ...g, arrangement: arrangement || undefined }));
 
