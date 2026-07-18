@@ -20,14 +20,33 @@
 // Fail-safe: missing STRIPE_SECRET_KEY or UNLOCK_SIGNING_SECRET → 503
 // `checkout_not_configured` (same shape /api/checkout uses) — never mints a
 // token off a half-configured deploy.
+//
+// SEC-3 (final whole-branch review): rate-limited (checkRates, same KV/shape
+// as checkout.js/generate.js) — this endpoint is unauthenticated and every
+// hit issues a real Stripe session GET, so it's hammerable with random
+// `cs_…` ids with no limit (a cost vector, not a payment hole — the unlock
+// itself stays gated on Stripe actually reporting the session paid).
 // ─────────────────────────────────────────────────────────────────────────
 
 import { json } from '../_lib/http.js';
+import { checkRates } from '../_lib/ratelimit.js';
 import { stripeGet } from '../_lib/stripe.js';
 import { sign } from '../_lib/unlock.js';
 
+const PER_IP_PER_MIN = 10;
+const PER_IP_PER_DAY = 60;
+
 export async function onRequestPost(context) {
   const { request, env } = context;
+  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+
+  if (env.RATE) {
+    const { ok } = await checkRates(env.RATE, [
+      { baseKey: `verify:ip:${ip}:min`, limit: PER_IP_PER_MIN, windowSec: 60 },
+      { baseKey: `verify:ip:${ip}:day`, limit: PER_IP_PER_DAY, windowSec: 86400 },
+    ]);
+    if (!ok) return json({ error: 'rate_limited' }, 429);
+  }
 
   if (!env.STRIPE_SECRET_KEY || !env.UNLOCK_SIGNING_SECRET) {
     return json({ error: 'checkout_not_configured' }, 503);

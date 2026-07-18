@@ -51,6 +51,45 @@ test('missing UNLOCK_SIGNING_SECRET -> 503, never mints a token off a half-confi
   assert.equal(called, false);
 });
 
+// ── SEC-3 (final whole-branch review): rate limiting ─────────────────────
+
+test('SEC-3: rate limited -> 429, and the over-limit call itself never reaches Stripe (injected RATE + fetch)', async () => {
+  let stripeCalls = 0;
+  globalThis.fetch = async () => { stripeCalls++; return { ok: true, status: 200, json: async () => ({}) }; };
+  const kv = fakeKV();
+  // PER_IP_PER_MIN is 10 — the first 10 calls are within budget and legitimately
+  // reach Stripe; the 11th must be blocked BEFORE it would have called Stripe
+  // an 11th time.
+  let last;
+  for (let i = 0; i < 11; i++) {
+    last = await onRequestPost({ request: fakeRequest({ session_id: 'cs_test_1' }), env: { ...CONFIGURED_ENV, RATE: kv } });
+  }
+  assert.equal(last.status, 429);
+  assert.deepEqual(await last.json(), { error: 'rate_limited' });
+  assert.equal(stripeCalls, 10, 'the 11th (blocked) call must not have added an 11th Stripe call');
+});
+
+test('SEC-3: rate limit is checked BEFORE the fail-safe config check (still never calls Stripe either way)', async () => {
+  let calledStripe = false;
+  globalThis.fetch = async () => { calledStripe = true; return { ok: true, status: 200, json: async () => ({}) }; };
+  const kv = fakeKV();
+  let last;
+  for (let i = 0; i < 11; i++) {
+    last = await onRequestPost({ request: fakeRequest({ session_id: 'cs_test_1' }), env: { RATE: kv } }); // no Stripe/unlock secrets configured at all
+  }
+  assert.equal(last.status, 429);
+  assert.equal(calledStripe, false);
+});
+
+test('SEC-3: env.RATE absent -> no rate limiting applied (fail-open, matches checkout.js\'s posture)', async () => {
+  stubStripeSession({ id: 'cs_test_1', status: 'complete', payment_status: 'paid', metadata: { designHash: HASH } });
+  let last;
+  for (let i = 0; i < 11; i++) {
+    last = await onRequestPost({ request: fakeRequest({ session_id: 'cs_test_1' }), env: CONFIGURED_ENV });
+  }
+  assert.equal(last.status, 200); // never 429 with no RATE binding
+});
+
 // ── input validation ─────────────────────────────────────────────────────
 
 test('missing/blank session_id -> 400', async () => {
