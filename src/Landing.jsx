@@ -18,6 +18,7 @@ import { navigate } from './router.js';
 import { listDesigns } from './library.js';
 import { PRICING_TIERS } from './pricing.js';
 import { heroStudioUrl } from './hero.js';
+import { useTypewriter } from './useTypewriter.js';
 
 // Landing's own copy of the sessionStorage handoff key used to carry the
 // `studio_opened{source}` attribution one hop ahead of navigate() (App.jsx's
@@ -36,6 +37,15 @@ const LOGO = (
   </svg>
 );
 
+// The hero input types the reel's own sentences — one source of truth for
+// "what a description sounds like" (the reel then SHOWS what each becomes).
+const HERO_PHRASES = REEL.map((s) => s.sentence);
+
+// The heirloom vignette frames the reel's opening scene — the same
+// grandmother the hero placeholder describes — completing the arc:
+// sentence → arms → framed on the family wall.
+const HEIRLOOM = { ...REEL[0].design, motto: REEL[0].motto };
+
 // Three gallery arms, chosen to show the figural range (beast / flora / object)
 // across warm and cool fields — not just the geometric charges.
 const GALLERY = [
@@ -52,6 +62,7 @@ export default function Landing({ onOpenStudio }) {
   const [paused, setPaused] = useState(false);    // auto-advance halted (still reel view)
   const [hoverPart, setHoverPart] = useState(null);
   const [heroDesc, setHeroDesc] = useState(''); // hero inline describe input (task-20 brief §3)
+  const [heroFocused, setHeroFocused] = useState(false);
   const [printNoted, setPrintNoted] = useState(false); // the coming-soon print card's demand-signal tap
 
   const isMobile = useMediaQuery('(max-width: 720px)');
@@ -155,6 +166,16 @@ export default function Landing({ onOpenStudio }) {
   // Studio describe step. An empty submit falls back to the plain "open a
   // blank Studio" behaviour the gold CTA always had (onOpenStudio('hero_cta')),
   // so this is additive, not a replacement of that path.
+  // The placeholder types the reel's sentences out (Alon's feedback: a live
+  // typing animation beats a static example). Runs only while the field is
+  // empty AND unfocused AND motion is welcome — in every other case the
+  // static first sentence shows, so nothing moves under a reader's cursor
+  // and prefers-reduced-motion gets a perfectly still field. The visible
+  // caret is part of the placeholder string itself (U+258F).
+  const typewriterOn = !reduceMotion && !heroFocused && heroDesc === '';
+  const typed = useTypewriter(HERO_PHRASES, typewriterOn);
+  const heroPlaceholder = typewriterOn ? `${typed}▏` : HERO_PHRASES[0];
+
   const submitHeroDescribe = (e) => {
     e.preventDefault();
     const text = heroDesc.trim();
@@ -199,7 +220,7 @@ export default function Landing({ onOpenStudio }) {
   // Hero control rail row
   const ctrlBase = { display: 'flex', alignItems: 'center', gap: 12, background: C.panel2, border: '1px solid rgba(201,162,75,.28)', borderRadius: 10, padding: '11px 14px', cursor: 'pointer', color: C.cream, textAlign: 'left', width: '100%' };
   const ctrlHover = { background: '#1E3A5C', border: `1px solid ${C.gold}` };
-  const ctrlLabel = { fontSize: 10.5, letterSpacing: '.6px', color: C.muted2, width: 64, flex: 'none' };
+  const ctrlLabel = { fontSize: 10.5, letterSpacing: '.6px', color: C.label, width: 64, flex: 'none' };
   const ctrlValue = { fontFamily: F.serif, fontSize: 17, color: C.cream, flex: 1 };
   const cycleGlyph = <span style={{ fontSize: 15, color: C.gold }}>↻</span>;
 
@@ -248,7 +269,9 @@ export default function Landing({ onOpenStudio }) {
               id="hero-describe-input"
               value={heroDesc}
               onChange={(e) => setHeroDesc(e.target.value)}
-              placeholder="A grandmother who spent her life by the sea…"
+              onFocus={() => setHeroFocused(true)}
+              onBlur={() => setHeroFocused(false)}
+              placeholder={heroPlaceholder}
               style={{ flex: '1 1 260px', minWidth: 220, background: C.panel2, border: `1px solid ${C.lineHi}`, borderRadius: 8, padding: '14px 16px', color: C.cream, fontSize: 15.5, fontFamily: F.sans }}
             />
             <HoverBtn type="submit" style={{ ...goldBtn, padding: '15px 28px', fontSize: 16, whiteSpace: 'nowrap' }} hoverStyle={goldBtnHover}>Describe someone →</HoverBtn>
@@ -256,7 +279,7 @@ export default function Landing({ onOpenStudio }) {
           <div style={{ marginTop: 14 }}>
             <a href="#how" style={{ color: C.cream, textDecoration: 'none', fontSize: 15, paddingBottom: 3, borderBottom: `1px solid ${C.lineHi}` }}>See how it works</a>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.muted2, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 18, marginTop: 30, color: C.label, fontSize: 12.5, letterSpacing: '.3px', flexWrap: 'wrap' }}>
             <span>No heraldry needed</span>
             <span style={{ width: 4, height: 4, borderRadius: '50%', background: C.lineHi }} />
             <span>2,000+ real heraldic symbols</span>
@@ -306,7 +329,7 @@ export default function Landing({ onOpenStudio }) {
             {!driving && (
               <div key={sceneIdx} style={{ animation: 'fadein .5s ease' }}>
                 <div style={{ fontFamily: F.serif, fontStyle: 'italic', fontSize: 17, color: C.gold }}>“{scene.motto}”</div>
-                <div style={{ fontSize: 12.5, color: C.muted2, marginTop: 4 }}>{scene.reason}</div>
+                <div style={{ fontSize: 12.5, color: C.label, marginTop: 4 }}>{scene.reason}</div>
               </div>
             )}
           </div>
@@ -328,7 +351,7 @@ export default function Landing({ onOpenStudio }) {
 
           <div style={{ width: '100%', maxWidth: 392, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
-              <span style={{ fontSize: 11, letterSpacing: '1.5px', color: C.muted2 }}>TAP A PART TO CHANGE IT</span>
+              <span style={{ fontSize: 11, letterSpacing: '1.5px', color: C.label }}>TAP A PART TO CHANGE IT</span>
               <HoverBtn
                 onClick={surprise}
                 style={{ display: 'flex', alignItems: 'center', gap: 7, background: 'rgba(201,162,75,.12)', border: `1px solid ${C.lineHi}`, borderRadius: 20, padding: '6px 13px', cursor: 'pointer', color: C.gold, fontSize: 12.5, fontWeight: 600 }}
@@ -368,6 +391,59 @@ export default function Landing({ onOpenStudio }) {
         </div>
       </section>
 
+      {/* ── The heirloom vignette — the arms in situ, composed entirely from
+          our own SVG renderer (no stock imagery). Frames REEL[0]'s design —
+          the same grandmother the hero placeholder is busy typing about — so
+          the page reads: sentence → arms → framed on the family wall. The
+          scene is aria-hidden decoration; the copy column carries the same
+          content in words (sentence, blazon, and the framed-heirloom idea). */}
+      <section style={{ ...sectionWrap, padding: isMobile ? `8px ${PAD}px 30px` : `20px ${PAD}px 46px` }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isTablet ? '1fr' : '1fr 1.06fr', alignItems: 'stretch', borderRadius: 16, overflow: 'hidden', border: `1px solid ${C.lineMid}`, background: C.bg2, boxShadow: '0 18px 44px rgba(0,0,0,.4)' }}>
+          {/* Copy side */}
+          <div style={{ padding: isMobile ? '32px 24px 28px' : '52px 48px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'flex-start' }}>
+            <div style={eyebrow}>Where it ends up</div>
+            <h2 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 29 : 38, lineHeight: 1.08, margin: '14px 0 14px', letterSpacing: '-.3px', textWrap: 'balance' }}>One sentence becomes the thing on the family wall.</h2>
+            <p style={{ color: C.muted, fontSize: 15.5, lineHeight: 1.62, margin: '0 0 28px', maxWidth: '30em' }}>
+              “{REEL[0].sentence}” That was the whole brief. The arms it became — <span style={{ fontFamily: F.serif, fontStyle: 'italic', color: C.cream }}>{blazon(HEIRLOOM, 'formal')}</span> — now
+              hang over the mantel, and they will still mean her to her great-grandchildren.
+            </p>
+            <HoverBtn onClick={() => onOpenStudio('heirloom_cta')} style={{ ...goldBtn, padding: '14px 26px', fontSize: 15.5 }} hoverStyle={goldBtnHover}>Make one for your family →</HoverBtn>
+          </div>
+
+          {/* Scene side: wall, picture light, corded gold frame, mantel, candle */}
+          <div aria-hidden style={{ position: 'relative', minHeight: isMobile ? 400 : 460, background: 'linear-gradient(180deg, #16110A 0%, #0F0B06 72%, #090603 100%)', overflow: 'hidden' }}>
+            {/* Picture-light glow washing down the wall */}
+            <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(340px 240px at 50% 16%, rgba(201,162,75,.20), transparent 72%)' }} />
+            {/* Laid-plaster texture, same recipe as the parchment surface */}
+            <div style={{ position: 'absolute', inset: 0, backgroundImage: 'repeating-linear-gradient(115deg, rgba(201,162,75,.03) 0 2px, transparent 2px 9px)' }} />
+
+            {/* Cord + frame hang as one unit, seated just above the mantel */}
+            <div style={{ position: 'absolute', bottom: 'calc(11% + 26px)', left: '50%', transform: 'translateX(-50%)', width: 'min(56%, 230px)', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <svg viewBox="0 0 100 26" style={{ width: '86%', overflow: 'visible', display: 'block' }}>
+                <circle cx="50" cy="2.5" r="2" fill={C.gold} />
+                <path d="M50,3 L4,26 M50,3 L96,26" stroke="rgba(201,162,75,.45)" strokeWidth="1" fill="none" />
+              </svg>
+              <div style={{ width: '100%', padding: 9, borderRadius: 3, background: 'linear-gradient(145deg, #DCBB66, #7A5E22 38%, #C9A24B 62%, #5E4718)', boxShadow: '0 26px 44px rgba(0,0,0,.62), 0 5px 12px rgba(0,0,0,.5)' }}>
+                <div style={{ background: C.parch, backgroundImage: 'repeating-linear-gradient(135deg, rgba(120,100,60,.05) 0 2px, transparent 2px 7px)', padding: '14px 10px 8px', boxShadow: 'inset 0 1px 7px rgba(60,45,15,.42)' }}>
+                  <Achievement design={HEIRLOOM} width="100%" />
+                </div>
+              </div>
+            </div>
+
+            {/* Mantel shelf + the hearth wall beneath it */}
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: '11%', height: 15, background: 'linear-gradient(180deg, #55421F, #2E2210 85%)', boxShadow: '0 12px 20px rgba(0,0,0,.55), 0 -1px 0 rgba(220,187,102,.25)' }} />
+            <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '11%', background: 'linear-gradient(180deg, #251B0C, #130E06)' }} />
+
+            {/* A candle on the mantel — one warm point of life in the scene */}
+            <div style={{ position: 'absolute', bottom: 'calc(11% + 15px)', right: '13%', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ width: 5, height: 9, borderRadius: '50% 50% 45% 45%', background: 'radial-gradient(circle at 50% 65%, #F3D98B, #C9A24B 75%)', boxShadow: '0 0 18px 7px rgba(220,187,102,.30)' }} />
+              <div style={{ width: 9, height: 30, borderRadius: 2, background: 'linear-gradient(180deg, #E4DCC8, #B7AD92)', marginTop: 1 }} />
+              <div style={{ width: 16, height: 4, borderRadius: 2, background: '#7A5E22', marginTop: -1 }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* How it works — depth continuum (replaces the old persona "modes") */}
       <section style={sec} id="how">
         <GildedRule />
@@ -382,11 +458,11 @@ export default function Landing({ onOpenStudio }) {
           {DEPTH_STEPS.map((s) => (
             <div key={s.n} style={{ textAlign: 'center', position: 'relative' }}>
               <div style={{ position: 'relative', zIndex: 2, width: 40, height: 40, margin: '0 auto 18px', borderRadius: '50%', background: C.bg, border: `1.6px solid ${C.gold}`, color: C.gold, fontFamily: F.serif, fontWeight: 600, fontSize: 19, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.n}</div>
-              <div style={{ fontSize: 10.5, letterSpacing: '1.8px', color: C.muted2, marginBottom: 5, textTransform: 'uppercase' }}>{s.kicker}</div>
+              <div style={{ fontSize: 10.5, letterSpacing: '1.8px', color: C.label, marginBottom: 5, textTransform: 'uppercase' }}>{s.kicker}</div>
               <h3 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: 24, margin: '0 0 16px' }}>{s.title}</h3>
               <div style={{ background: C.bg2, border: `1px solid ${C.line}`, borderRadius: 13, padding: 18, minHeight: 118, display: 'flex', flexDirection: 'column', gap: 9, justifyContent: 'center', textAlign: 'left', marginBottom: 16 }}>
                 {s.demo}
-                <div style={{ fontSize: 11, color: C.muted2, letterSpacing: '.3px' }}>{s.cap}</div>
+                <div style={{ fontSize: 11, color: C.label, letterSpacing: '.3px' }}>{s.cap}</div>
               </div>
               <p style={{ color: C.muted, fontSize: 14, lineHeight: 1.55, margin: '0 auto', maxWidth: '21em' }}>{s.body}</p>
             </div>
@@ -450,7 +526,7 @@ export default function Landing({ onOpenStudio }) {
                 {p.highlight && <div style={{ position: 'absolute', top: -11, left: 24, background: C.gold, color: C.goldInk, fontSize: 10, fontWeight: 700, letterSpacing: '1px', padding: '4px 11px', borderRadius: 20 }}>OWN IT</div>}
                 <div style={{ fontSize: 13.5, fontWeight: 600, color: p.highlight ? C.gold : C.muted }}>{p.tier}{p.comingSoon && ' · coming soon'}</div>
                 <div style={{ fontFamily: F.serif, fontSize: 38, fontWeight: 600, margin: '10px 0 16px' }}>
-                  {p.priceLabel}{p.priceSuffix && <small style={{ fontSize: 15, color: C.muted2, fontFamily: F.sans }}> {p.priceSuffix}</small>}
+                  {p.priceLabel}{p.priceSuffix && <small style={{ fontSize: 15, color: C.label, fontFamily: F.sans }}> {p.priceSuffix}</small>}
                 </div>
                 <p style={{ fontSize: 13.5, color: C.muted, lineHeight: 1.55, margin: 0 }}>{p.body}</p>
                 {p.comingSoon && (
@@ -458,7 +534,7 @@ export default function Landing({ onOpenStudio }) {
                   // 6 Minor): announces the "Noted" confirmation to screen
                   // reader users, who otherwise get no feedback at all that
                   // their tap registered.
-                  <div role="status" style={{ fontSize: 12, color: printNoted ? C.gold : C.muted2, marginTop: 14, textDecoration: printNoted ? 'none' : 'underline' }}>
+                  <div role="status" style={{ fontSize: 12, color: printNoted ? C.gold : C.label, marginTop: 14, textDecoration: printNoted ? 'none' : 'underline' }}>
                     {printNoted ? 'Noted — we’ll let you know.' : 'Tap to say you’d buy this →'}
                   </div>
                 )}
@@ -480,7 +556,7 @@ export default function Landing({ onOpenStudio }) {
         </div>
       </section>
 
-      <footer style={{ padding: `36px ${PAD}px 40px`, textAlign: 'center', color: C.muted2, fontSize: 13 }}>
+      <footer style={{ padding: `36px ${PAD}px 40px`, textAlign: 'center', color: C.label, fontSize: 13 }}>
         <GildedRule maxWidth={340} filled />
         <div style={{ marginTop: 16 }}>Blazon — heraldry for everyone. · <span style={{ fontFamily: F.serif, fontStyle: 'italic' }}>Per fess Or and Azure</span></div>
         <div style={{ marginTop: 14 }}><CreditsLink /></div>

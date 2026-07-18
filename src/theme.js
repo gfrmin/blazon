@@ -25,6 +25,10 @@ export const C = {
   cream: '#ECE6D8',
   muted: 'rgba(236,230,216,.66)',
   muted2: 'rgba(236,230,216,.46)',
+  // For SMALL text (≤ ~14px): muted2 composites to ~3.9:1 on bg2 — fine for
+  // large type, below WCAG AA's 4.5:1 for small labels. This blends to ~5:1
+  // on bg/bg2. Use it wherever muted2 text renders under ~15px.
+  label: 'rgba(236,230,216,.58)',
   // Parchment accent (gallery / gift / certificate — evokes the print product)
   parch: '#ECE3CB',
   parchEdge: '#D8CCAB',

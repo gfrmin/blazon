@@ -95,7 +95,7 @@ function PartCard({ tag, valueText, rationale, onSetAside, children }) {
         {onSetAside ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={valueStyle}>{valueText}</span>
-            <button onClick={onSetAside} style={{ background: 'none', border: 'none', color: 'rgba(236,230,216,.45)', fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Set aside</button>
+            <button onClick={onSetAside} style={{ background: 'none', border: 'none', color: C.label, fontSize: 11.5, cursor: 'pointer', textDecoration: 'underline', fontFamily: F.sans, padding: 0 }}>Set aside</button>
           </div>
         ) : (
           <span style={valueStyle}>{valueText}</span>
@@ -905,7 +905,7 @@ export default function Studio({ onBack }) {
                 <Achievement design={design} shieldSlot={shieldSlot} width="100%" backfill={false} />
               </div>
               {!local && dsUrl && !dsFailed && (
-                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
+                <div style={{ fontSize: 11, color: C.label, marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
               )}
               {/* The motto scroll inside <Achievement> already carries the motto —
                   no separate caption here (would double-show it; task-14 brief §1). */}
@@ -926,7 +926,7 @@ export default function Studio({ onBack }) {
                 )}
               </div>
               {!local && dsUrl && !dsFailed && (
-                <div style={{ fontSize: 11, color: 'rgba(236,230,216,.4)', marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
+                <div style={{ fontSize: 11, color: C.label, marginTop: 10, letterSpacing: '.3px' }}>artwork by DrawShield</div>
               )}
               {design.motto && design.motto.trim() && (
                 <div style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontSize: 22, color: C.gold, marginTop: 26, letterSpacing: '.5px' }}>“{design.motto}”</div>
@@ -978,7 +978,7 @@ export default function Studio({ onBack }) {
                     : 'Please complete the verification above, then try again.'}
                 </p>
               )}
-              <p style={{ fontSize: 12, color: 'rgba(236,230,216,.45)', textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required — you can change every choice afterwards.</p>
+              <p style={{ fontSize: 12, color: C.label, textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required — you can change every choice afterwards.</p>
             </div>
           )}
 
@@ -1322,7 +1322,7 @@ export default function Studio({ onBack }) {
             ? (lang === 'formal'
               ? <span style={{ fontFamily: "'Cormorant Garamond', serif", fontStyle: 'italic', fontWeight: 600, fontSize: isMobile ? 18 : 24, color: '#ECE6D8' }}>{blazon(design, 'formal')}</span>
               : <span style={{ fontSize: isMobile ? 15 : 17, color: 'rgba(236,230,216,.82)' }}>{blazon(design, 'plain')}</span>)
-            : <span style={{ fontSize: 15, color: 'rgba(236,230,216,.4)', fontStyle: 'italic' }}>Your blazon will be written here as you design.</span>}
+            : <span style={{ fontSize: 15, color: C.label, fontStyle: 'italic' }}>Your blazon will be written here as you design.</span>}
         </div>
         <button onClick={copyBlazon} disabled={!design} style={{ flex: 'none', background: 'transparent', border: '1px solid rgba(201,162,75,.4)', color: copied ? C.gold : '#ECE6D8', padding: '9px 18px', borderRadius: 7, fontSize: 13.5, cursor: design ? 'pointer' : 'default', fontWeight: 500, opacity: design ? 1 : .5 }}>{copied ? 'Copied ✓' : 'Copy'}</button>
       </div>
