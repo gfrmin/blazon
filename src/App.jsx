@@ -3,6 +3,7 @@ import Landing from './Landing.jsx';
 import Studio from './Studio.jsx';
 import ShareView from './ShareView.jsx';
 import Library from './Library.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 import { useRoute, navigate } from './router.js';
 
 // Source handoff for the `studio_opened` event (task-7 brief §2). Landing's
@@ -18,7 +19,7 @@ function openStudio(source) {
   navigate('/studio');
 }
 
-export default function App() {
+function Router() {
   const { path } = useRoute();
 
   if (path === '/studio') {
@@ -39,4 +40,15 @@ export default function App() {
 
   // '/' and any unknown path → Landing. No 404 handling by design (brief).
   return <Landing onOpenStudio={openStudio} />;
+}
+
+// I1 (final whole-branch review): wrap the route render in a top-level error
+// boundary — see ErrorBoundary.jsx's own header for the crash this closes
+// (and the null-safety fix that closes the specific known trigger).
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <Router />
+    </ErrorBoundary>
+  );
 }

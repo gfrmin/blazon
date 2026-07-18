@@ -314,3 +314,40 @@ test('validation warnings are non-blocking: computeWarn always returns a string 
   assert.equal(typeof computeWarn(c), 'string');
   assert.equal(computeWarn(fullAchievement), null); // the default full achievement is itself clean
 });
+
+// ── I1 (final whole-branch review): blazon() must never throw on a malformed
+// coat — a charge/crest/supporter `object` missing its `key` (an unvalidated
+// /api/generate response truncated at max_tokens, or a hand-crafted /a/|#
+// share payload) previously crashed deep inside chargeNoun/chargePlain
+// (`undefined.replace`), which Achievement.jsx's aria-label computes on
+// EVERY render — with no error boundary (the other half of this fix,
+// src/ErrorBoundary.jsx), that took down the whole app. ──
+
+test('blazon(): a shield charge object missing `key` does not throw, in either language', () => {
+  const c = coat({ tincture: 'Azure' }, [
+    { role: 'secondary', number: 1, tincture: 'Or', object: { kind: 'charge' } }, // no `key`
+  ]);
+  assert.doesNotThrow(() => blazon(c, 'formal'));
+  assert.doesNotThrow(() => blazon(c, 'plain'));
+  assert.equal(typeof blazon(c, 'formal'), 'string');
+});
+
+test('blazon(): a crest object missing `key` does not throw', () => {
+  const c = {
+    ...heraldShield,
+    achievement: { crest: { role: 'primary', number: 1, tincture: 'Or', object: { kind: 'charge' } } }, // no `key`
+  };
+  assert.doesNotThrow(() => blazon(c, 'formal'));
+  assert.doesNotThrow(() => blazon(c, 'plain'));
+});
+
+test('blazon(): a supporter object missing `key` does not throw', () => {
+  const c = {
+    ...heraldShield,
+    achievement: {
+      supporters: { dexter: { tincture: 'Or', object: { kind: 'charge' } } }, // no `key`
+    },
+  };
+  assert.doesNotThrow(() => blazon(c, 'formal'));
+  assert.doesNotThrow(() => blazon(c, 'plain'));
+});
