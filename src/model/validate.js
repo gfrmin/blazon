@@ -122,3 +122,36 @@ export function computeWarn(d) {
 }
 
 export { fieldClass };
+
+// ─────────────────────────────────────────────────────────────────────────
+// validateDesignShape() — a HARD structural check (distinct from computeWarn's
+// soft heraldic advice). The generation endpoint runs model output through this
+// before returning it, so a malformed tool reply (e.g. one truncated at
+// max_tokens) is rejected cleanly rather than flowing on into resolveCharges /
+// the renderer as a half-formed design.
+// ─────────────────────────────────────────────────────────────────────────
+const isPlainObj = (v) => v != null && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * @param {object} d  a design object (Coat shape) to structurally validate.
+ * @returns {string|null}  an error code when malformed, or null when the shape is sound.
+ */
+export function validateDesignShape(d) {
+  if (!isPlainObj(d)) return 'not_an_object';
+  if (d.marshalling !== undefined) {
+    if (!isPlainObj(d.marshalling) || !Array.isArray(d.marshalling.parts)) return 'invalid_marshalling';
+    return null; // marshalled coats are constructed server-side, not by the model
+  }
+  const f = d.field;
+  if (!isPlainObj(f)) return 'missing_field';
+  if (typeof f.tincture !== 'string' && !isPlainObj(f.division)) return 'invalid_field';
+  if (f.division && (typeof f.division.type !== 'string' || !Array.isArray(f.division.tinctures))) {
+    return 'invalid_division';
+  }
+  if (!Array.isArray(d.charges)) return 'missing_charges';
+  for (const g of d.charges) {
+    if (!isPlainObj(g) || !isPlainObj(g.object)) return 'invalid_charge';
+    if (typeof g.object.key !== 'string' || !g.object.key) return 'invalid_charge_key';
+  }
+  return null;
+}

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { blazon } from '../blazon.js';
-import { computeWarn } from '../validate.js';
+import { computeWarn, validateDesignShape } from '../validate.js';
 import { coat, marshal, withDefaultAchievement } from '../achievement.js';
 
 // ── Backward-compat: the legacy flat design object still blazons correctly ──
@@ -450,4 +450,24 @@ test('blazon(): a bare-partial coat with legacy-shaped charges does not throw', 
   const bare = { field: 'Azure', charges: [{ type: 'mullet', tincture: 'Or', qty: 2 }] };
   assert.doesNotThrow(() => blazon(bare, 'formal'));
   assert.equal(blazon(bare, 'formal'), 'Azure, two mullets Or');
+});
+
+// ── validateDesignShape (S4.4) — the hard structural check the generation
+// endpoint runs on model output before returning it. ──
+test('validateDesignShape accepts a sound coat (single tincture and a division)', () => {
+  assert.equal(validateDesignShape({ field: { tincture: 'Azure' }, charges: [] }), null);
+  assert.equal(validateDesignShape({
+    field: { division: { type: 'per pale', tinctures: ['Or', 'Azure'] } },
+    charges: [{ role: 'primary', number: 1, tincture: 'Or', object: { kind: 'ordinary', key: 'fess' } }],
+  }), null);
+});
+
+test('validateDesignShape rejects malformed shapes with a specific error code', () => {
+  assert.equal(validateDesignShape(null), 'not_an_object');
+  assert.equal(validateDesignShape({ charges: [] }), 'missing_field');
+  assert.equal(validateDesignShape({ field: { tincture: 'Or' } }), 'missing_charges');
+  assert.equal(validateDesignShape({ field: { tincture: 42 }, charges: [] }), 'invalid_field');
+  assert.equal(validateDesignShape({
+    field: { tincture: 'Or' }, charges: [{ object: { kind: 'charge' } }],
+  }), 'invalid_charge_key');
 });

@@ -15,6 +15,7 @@
 import { TINCTURE_ORDER, FURS } from '../../src/model/tinctures.js';
 import { CHARGES, ATTITUDES } from '../../src/model/charges.js';
 import { withDefaultAchievement } from '../../src/model/achievement.js';
+import { validateDesignShape } from '../../src/model/validate.js';
 import { HELMETS as VENDORED_HELMETS } from '../../src/achievement-art/manifest.js';
 import { LOCAL_DIVISIONS, LOCAL_ORDINARIES } from '../../src/render-capabilities.js';
 import catalog from '../../src/charges/catalog.js';
@@ -89,6 +90,21 @@ function resolveCharges(design) {
 const PER_IP_PER_MIN = 5;
 const PER_IP_PER_DAY = 40;
 const GLOBAL_PER_DAY = 3000;
+const MAX_DESCRIPTION = 2000;
+const UPSTREAM_TIMEOUT_MS = 30000;
+
+// The rate-limit identity for an IP. IPv4 is used verbatim; IPv6 is aggregated
+// to its /64 (the first four hextets) so an attacker holding a whole /64 — a
+// routine allocation — can't cycle addresses to defeat the per-IP limit.
+export function ipKey(ip) {
+  if (!ip || !ip.includes(':')) return ip || 'unknown';
+  const [head, tail = ''] = ip.split('::');
+  const headGroups = head ? head.split(':') : [];
+  const tailGroups = tail ? tail.split(':') : [];
+  const fill = Math.max(0, 8 - headGroups.length - tailGroups.length);
+  const groups = [...headGroups, ...Array(fill).fill('0'), ...tailGroups];
+  return `${groups.slice(0, 4).join(':')}::/64`;
+}
 
 // The Coat shape, enum-constrained to the app's known vocabulary (spec §6.1).
 const DESIGN_TOOL = {
@@ -209,6 +225,7 @@ const DESIGN_TOOL = {
       },
     },
     required: ['field', 'charges', 'rationale'],
+    additionalProperties: false,
   },
 };
 
@@ -224,57 +241,85 @@ Return everything via the render_arms tool.`;
 
 export async function onRequestPost(context) {
   const { request, env } = context;
-  const ip = request.headers.get('cf-connecting-ip') || 'unknown';
+  const rawIp = request.headers.get('cf-connecting-ip') || 'unknown';
+  const ip = ipKey(rawIp);
+
+  // Rate limiting is a hard cost backstop — if the KV binding is missing we fail
+  // CLOSED (never run generation uncapped) rather than silently disabling every
+  // limit. Same "endpoint unavailable" posture the client already handles by
+  // falling back to canned presets. (Contrast: a MISSING Turnstile secret is
+  // also fatal below — both guards must be present for the endpoint to run.)
+  if (!env.RATE) {
+    console.error('generate: RATE KV binding missing — refusing to run uncapped');
+    return json({ error: 'rate_unavailable' }, 503);
+  }
 
   let body = {};
   try { body = await request.json(); } catch { /* ignore */ }
 
-  // 1) Rate-limit (cheap KV reads) — caps abuse spend even from real browsers.
-  if (env.RATE) {
+  // 1) Per-IP pre-filter (cheap KV reads) — bounds a single client BEFORE we
+  //    spend a Turnstile verification on them. Keyed by /64 for IPv6.
+  {
     const { ok } = await checkRates(env.RATE, [
       { baseKey: `ip:${ip}:min`, limit: PER_IP_PER_MIN, windowSec: 60 },
       { baseKey: `ip:${ip}:day`, limit: PER_IP_PER_DAY, windowSec: 86400 },
+    ]);
+    if (!ok) return json({ error: 'rate_limited' }, 429);
+  }
+
+  // 2) Turnstile — only real users reach the shared quota / Claude. Fail SAFE:
+  //    if the secret isn't configured, lock the endpoint (never call Claude
+  //    unprotected). Optional hostname allow-list via env.TURNSTILE_HOSTNAMES
+  //    (comma-separated) rejects tokens solved on a foreign site.
+  const secret = env.TURNSTILE_SECRET_KEY;
+  if (!secret) return json({ error: 'challenge_unavailable' }, 403);
+  const allowedHostnames = (env.TURNSTILE_HOSTNAMES || '')
+    .split(',').map((h) => h.trim()).filter(Boolean);
+  if (!(await verifyTurnstile(body.turnstileToken, rawIp, secret, allowedHostnames))) {
+    return json({ error: 'failed_challenge' }, 403);
+  }
+
+  // 3) Global daily cap — counted only AFTER Turnstile, so an unauthenticated
+  //    attacker can't burn the shared quota without solving the challenge.
+  {
+    const { ok } = await checkRates(env.RATE, [
       { baseKey: 'global:day', limit: GLOBAL_PER_DAY, windowSec: 86400 },
     ]);
     if (!ok) return json({ error: 'rate_limited' }, 429);
   }
 
-  // 2) Turnstile — only real users reach Claude. Fail SAFE: if the secret isn't
-  //    configured, lock the endpoint (never call Claude unprotected). The client
-  //    treats this like 503 and falls back to canned presets.
-  const secret = env.TURNSTILE_SECRET_KEY;
-  if (!secret) return json({ error: 'challenge_unavailable' }, 403);
-  if (!(await verifyTurnstile(body.turnstileToken, ip, secret))) {
-    return json({ error: 'failed_challenge' }, 403);
-  }
-
-  // 3) Generation
+  // 4) Generation
   const key = env.ANTHROPIC_API_KEY;
   if (!key) return json({ error: 'generation_not_configured' }, 503);
 
   const description = (body.description || '').trim();
   if (!description) return json({ error: 'missing_description' }, 400);
+  // Reject an over-long description explicitly rather than silently truncating
+  // it (a truncated story generates arms for a person it no longer describes).
+  if (description.length > MAX_DESCRIPTION) return json({ error: 'description_too_long' }, 400);
 
   let upstream;
   try {
     upstream = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      // Bound the upstream call so a hung Anthropic connection can't pin the
+      // Function until the platform kills it (AbortSignal.timeout → the catch
+      // below returns the same opaque 502 as any other fetch failure).
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 2048,
         system: SYSTEM,
         tools: [DESIGN_TOOL],
         tool_choice: { type: 'tool', name: 'render_arms' },
-        messages: [{ role: 'user', content: description.slice(0, 2000) }],
+        messages: [{ role: 'user', content: description }],
       }),
     });
   } catch {
     // Minor (final whole-branch review): never echo the caught error back to
     // the client — a generic opaque code only, same posture as
-    // stripe.js/checkout.js's own error responses. Server-side behaviour
-    // (the failed fetch itself) is unchanged; only the response shape lost
-    // the `detail` field.
+    // stripe.js/checkout.js's own error responses.
     return json({ error: 'upstream_unreachable' }, 502);
   }
 
@@ -284,15 +329,29 @@ export async function onRequestPost(context) {
     return json({ error: 'upstream_error' }, 502);
   }
 
-  const data = await upstream.json();
+  // Guard the JSON parse — a truncated/garbled upstream body must not throw an
+  // unhandled error out of the Function.
+  let data;
+  try { data = await upstream.json(); } catch { return json({ error: 'upstream_error' }, 502); }
+
+  // A reply cut off at the token ceiling carries a half-built tool input — the
+  // JSON may parse but the design is incomplete. Reject it cleanly.
+  if (data.stop_reason === 'max_tokens') return json({ error: 'design_truncated' }, 502);
+
   const tool = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'render_arms');
   if (!tool || !tool.input || !tool.input.field) return json({ error: 'no_design' }, 502);
 
   // Resolve charge terms to catalog slugs BEFORE backfilling, so a default
   // crest/supporters that echoes the coat's principal charge (see
-  // withDefaultAchievement) sees the already-resolved key. Backfill guarantees
-  // a full achievement even when Claude omits it (or parts of it).
-  return json({ design: withDefaultAchievement(resolveCharges(tool.input)) });
+  // withDefaultAchievement) sees the already-resolved key.
+  const design = resolveCharges(tool.input);
+
+  // Structurally validate the model's output before it flows into the backfill
+  // and back to the client — defence in depth beyond the tool schema.
+  if (validateDesignShape(design)) return json({ error: 'invalid_design' }, 502);
+
+  // Backfill guarantees a full achievement even when Claude omits it (or parts).
+  return json({ design: withDefaultAchievement(design) });
 }
 
 // Exported for tests only (schema enum-derivation checks, resolveCharges unit
