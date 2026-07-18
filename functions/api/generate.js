@@ -269,11 +269,20 @@ export async function onRequestPost(context) {
         messages: [{ role: 'user', content: description.slice(0, 2000) }],
       }),
     });
-  } catch (e) {
-    return json({ error: 'upstream_unreachable', detail: String(e) }, 502);
+  } catch {
+    // Minor (final whole-branch review): never echo the caught error back to
+    // the client — a generic opaque code only, same posture as
+    // stripe.js/checkout.js's own error responses. Server-side behaviour
+    // (the failed fetch itself) is unchanged; only the response shape lost
+    // the `detail` field.
+    return json({ error: 'upstream_unreachable' }, 502);
   }
 
-  if (!upstream.ok) return json({ error: 'upstream_error', status: upstream.status, detail: await upstream.text() }, 502);
+  if (!upstream.ok) {
+    // Same posture: don't return upstream.text() (could carry prompt/account
+    // details from Anthropic's own error body) to the client.
+    return json({ error: 'upstream_error' }, 502);
+  }
 
   const data = await upstream.json();
   const tool = (data.content || []).find((c) => c.type === 'tool_use' && c.name === 'render_arms');

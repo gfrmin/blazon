@@ -563,7 +563,7 @@ export default function Studio({ onBack }) {
     if (!pendingUnlockRef.current || !design) return undefined;
     const pending = pendingUnlockRef.current;
     let cancelled = false;
-    designHash(design).then((h) => {
+    designHash(design).then(async (h) => {
       if (cancelled || h !== pending.hash) return;
       pendingUnlockRef.current = null;
       recordUnlock(h, pending.token, { v: 1, coat: design });
@@ -572,7 +572,21 @@ export default function Studio({ onBack }) {
       // flagged unlocked — overwrites the current entry if this design is
       // already saved (currentId), else creates one so a purchase is never
       // silently unsaved-and-unfindable.
-      const result = saveDesign(localStorage, { id: currentId || undefined, coat: design });
+      //
+      // Minor fix (final whole-branch review): re-derive `currentId` via
+      // `findByHash` right here rather than trusting the `currentId` state
+      // closed over above. The mount-time reconnect effect (§2b, above) sets
+      // `currentId` via the SAME `findByHash` lookup, but asynchronously —
+      // if THIS effect's network round trip (verify-payment) resolves before
+      // that one finishes, `currentId` is still null here even though the
+      // design is already a saved library entry, and `saveDesign` below would
+      // fork a duplicate instead of overwriting it. A fresh, synchronous-as-
+      // possible lookup right before the save closes that race; falling back
+      // to `currentId` costs nothing when the entry genuinely isn't saved yet
+      // (a first-time purchase of a never-saved design).
+      const reconnected = await findByHash(localStorage, h).catch(() => null);
+      const saveId = (reconnected && reconnected.id) || currentId || undefined;
+      const result = saveDesign(localStorage, { id: saveId, coat: design });
       if (result) {
         setCurrentId(result.id);
         setLibraryUnlocked(localStorage, result.id, true);

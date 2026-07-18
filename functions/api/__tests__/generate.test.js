@@ -203,3 +203,38 @@ test('onRequestPost never echoes the API key or the description on a design-less
   assert.equal(raw.includes(BASE_ENV.ANTHROPIC_API_KEY), false);
   assert.equal(raw.includes('a very secret family story'), false);
 });
+
+// ── Minor (final whole-branch review): never echo the caught error/upstream
+// response body back to the client — a generic opaque error code only, same
+// posture as stripe.js/checkout.js's own error responses. ──
+
+test('a network failure reaching Anthropic -> 502 upstream_unreachable, with NO `detail` field (the caught error is never echoed to the client)', async () => {
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('turnstile')) return { ok: true, json: async () => ({ success: true }) };
+    throw new Error('ECONNRESET: a secret internal hostname or stack detail');
+  };
+  const res = await onRequestPost({ request: fakeRequest({ description: 'x', turnstileToken: 'tok' }), env: BASE_ENV });
+  assert.equal(res.status, 502);
+  const body = await res.json();
+  assert.deepEqual(body, { error: 'upstream_unreachable' });
+  assert.equal('detail' in body, false);
+  const raw = JSON.stringify(body);
+  assert.equal(raw.includes('ECONNRESET'), false);
+  assert.equal(raw.includes('secret internal hostname'), false);
+});
+
+test('a non-ok Anthropic response -> 502 upstream_error, with NO `detail`/`status` echoing the upstream body (which could carry account/prompt details)', async () => {
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('turnstile')) return { ok: true, json: async () => ({ success: true }) };
+    return { ok: false, status: 429, text: async () => 'rate limited by anthropic — account xyz, quota details, etc.' };
+  };
+  const res = await onRequestPost({ request: fakeRequest({ description: 'x', turnstileToken: 'tok' }), env: BASE_ENV });
+  assert.equal(res.status, 502);
+  const body = await res.json();
+  assert.deepEqual(body, { error: 'upstream_error' });
+  const raw = JSON.stringify(body);
+  assert.equal(raw.includes('quota details'), false);
+  assert.equal(raw.includes('account xyz'), false);
+});

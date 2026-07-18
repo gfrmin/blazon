@@ -185,6 +185,45 @@ test('withDefaultAchievement stays idempotent when the crest echoes an art-beari
   assert.deepEqual(twice, once);
 });
 
+// ── Minor (final whole-branch review): generate.js's schema promises a crest
+// "falls back to a lion rampant otherwise" — but pre-fix, that fallback only
+// ever fired for an ABSENT crest. An EXPLICITLY-set crest whose own charge
+// has no vendored art (Claude's pick, or a hand-crafted coat) rendered a
+// blank slot instead of the promised fallback. ──
+
+test('explicit crest with NO vendored art (mullet) falls back to the lion rampant, not a blank slot — the schema\'s promise, now honoured for an EXPLICIT pick too', () => {
+  const c = coat({ tincture: 'Azure' }, [
+    { role: 'primary', number: 1, tincture: 'Argent', object: { kind: 'charge', key: 'lion', attitude: 'rampant' } },
+  ]);
+  // The crest is EXPLICITLY set to something the shield charge does NOT
+  // match (an artless geometric charge) — pre-fix, `existing.crest ?? …`
+  // never looked past "is a crest present at all".
+  c.achievement = { crest: { role: 'primary', number: 1, tincture: 'Gules', object: { kind: 'charge', key: 'mullet' } } };
+  const filled = withDefaultAchievement(c);
+  assert.equal(filled.achievement.crest.object.key, 'lion');
+  assert.equal(filled.achievement.crest.tincture, 'Or');
+  // NOT re-derived from the shield's own principal charge (also a lion here,
+  // which would mask the bug) — it's the FIXED lion-rampant-Or fallback,
+  // confirmed by the tincture (Or, not the shield's Argent).
+});
+
+test('explicit crest WITH vendored art (griffin) is left exactly as set — the fallback only overrides an unusable pick', () => {
+  const c = coat({ tincture: 'Azure' }, []);
+  c.achievement = { crest: { role: 'primary', number: 1, tincture: 'Vert', object: { kind: 'charge', key: 'griffin', attitude: 'passant' } } };
+  const filled = withDefaultAchievement(c);
+  assert.equal(filled.achievement.crest.object.key, 'griffin');
+  assert.equal(filled.achievement.crest.object.attitude, 'passant');
+  assert.equal(filled.achievement.crest.tincture, 'Vert');
+});
+
+test('withDefaultAchievement stays idempotent when an explicit artless crest falls back to the lion', () => {
+  const base = coat({ tincture: 'Azure' }, []);
+  base.achievement = { crest: { role: 'primary', number: 1, tincture: 'Gules', object: { kind: 'charge', key: 'mullet' } } };
+  const once = withDefaultAchievement(base);
+  const twice = withDefaultAchievement(once);
+  assert.deepEqual(twice, once);
+});
+
 // ── hasArt (the SAME predicate the renderer uses — Achievement.jsx/Shield.jsx) ──
 
 test('hasArt: known-art charge key is true (sanity: same predicate defaultCrest now reuses)', () => {

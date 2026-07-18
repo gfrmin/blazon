@@ -179,7 +179,7 @@ const principalBeast = (c) => (c.charges || []).find(isBeastGroup) ?? null;
  * `Achievement.jsx`'s crest/supporter art and `Shield.jsx`'s `VendoredCharge`
  * both gate on), so this stays in lockstep with what can actually be drawn.
  */
-const hasVendoredArt = (g) => !!g && hasArt(g.object.key, g.object.attitude);
+const hasVendoredArt = (g) => !!g && !!g.object && hasArt(g.object.key, g.object.attitude);
 
 function defaultCrest(c) {
   const g = principalCharge(c);
@@ -188,6 +188,29 @@ function defaultCrest(c) {
   // charge) — fall back to the same lion rampant Or `defaultSupporters`
   // already uses, rather than drawing a charge that has no artwork.
   return { role: 'primary', number: 1, tincture: 'Or', object: LION_RAMPANT_OR_OBJECT };
+}
+
+// A plain lion rampant Or crest — the SAME fallback `defaultCrest` reaches
+// for when there's no usable principal charge to echo, reused here for an
+// EXPLICITLY-set crest that turns out to have no vendored art either.
+const LION_RAMPANT_OR_CREST = { role: 'primary', number: 1, tincture: 'Or', object: LION_RAMPANT_OR_OBJECT };
+
+/**
+ * Minor (final whole-branch review): generate.js's schema copy promises a
+ * crest "falls back to a lion rampant otherwise" — but that promise only
+ * held for an ABSENT crest (`existing.crest ?? defaultCrest(c)` below never
+ * even looks at an crest that IS present). Claude (or a hand-crafted coat)
+ * can set an EXPLICIT crest whose charge has no vendored art (e.g. a
+ * geometric `mullet`), which then rendered a blank slot above the torse
+ * instead of the promised fallback. Falls back to the SAME lion rampant Or
+ * `defaultCrest` itself falls back to — not a re-derivation from the coat's
+ * principal charge — so an explicit-but-unusable pick degrades exactly like
+ * an absent one would, never silently substitutes a DIFFERENT charge the
+ * caller didn't ask for.
+ */
+function crestOrFallback(existing, c) {
+  if (!existing) return defaultCrest(c);
+  return hasVendoredArt(existing) ? existing : LION_RAMPANT_OR_CREST;
 }
 
 function defaultSupporters(c) {
@@ -212,7 +235,7 @@ export function withDefaultAchievement(coatInput) {
   const existing = isObj(c.achievement) ? c.achievement : {};
   const liveries = liveryTinctures(c);
   const achievement = {
-    crest: existing.crest ?? defaultCrest(c),
+    crest: crestOrFallback(existing.crest, c),
     helm: existing.helm ?? { style: 'esquire' },
     torse: existing.torse ?? { tinctures: [liveries.metal, liveries.colour] },
     mantling: existing.mantling ?? { tinctures: [liveries.colour, liveries.metal] },
