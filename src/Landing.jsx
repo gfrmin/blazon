@@ -252,11 +252,11 @@ export default function Landing({ onOpenStudio }) {
       {/* Hero */}
       <section style={{ ...sectionWrap, padding: isMobile ? `40px ${PAD}px 36px` : '70px 36px 40px', display: 'grid', gridTemplateColumns: isTablet ? '1fr' : '1.02fr .98fr', gap: isMobile ? 44 : 64, alignItems: 'center' }}>
         <div style={isTablet ? { order: 1 } : undefined}>
-          <div style={eyebrow}>By letters patent</div>
+          <div style={eyebrow}>Arms, newly made</div>
           <h1 style={{ fontFamily: F.serif, fontWeight: 600, fontSize: isMobile ? 40 : 62, lineHeight: 1.02, margin: '18px 0 24px', letterSpacing: '-.5px', textWrap: 'balance' }}>
-            <DropCap>W</DropCap>e still grant arms. You just describe the&nbsp;person.
+            <DropCap>W</DropCap>e still make arms. You just describe the&nbsp;person.
           </h1>
-          <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms that belongs to them alone.</p>
+          <p style={{ fontSize: isMobile ? 16 : 18, lineHeight: 1.62, color: C.muted, maxWidth: '31em', margin: '0 0 32px' }}>Tell us who someone is — a name, a place, the thing they were known for. We answer the way heralds have for eight hundred years: with a coat of arms made for them alone.</p>
           {/* Hero inline describe input (task-20 brief §3) — the highest-leverage
               activation lever: type here, submit, and land in the Studio already
               generating (heroStudioUrl → /studio?desc=..., Studio's existing
@@ -559,6 +559,9 @@ export default function Landing({ onOpenStudio }) {
       <footer style={{ padding: `36px ${PAD}px 40px`, textAlign: 'center', color: C.label, fontSize: 13 }}>
         <GildedRule maxWidth={340} filled />
         <div style={{ marginTop: 16 }}>Blazon — heraldry for everyone. · <span style={{ fontFamily: F.serif, fontStyle: 'italic' }}>Per fess Or and Azure</span></div>
+        <div style={{ marginTop: 14, maxWidth: 480, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.6 }}>
+          Every coat of arms here is an original you design and adopt — not an official grant, and not the “arms of a surname” (heraldry has never worked that way). Blazon is a design studio, not a heraldic authority, and isn’t affiliated with one.
+        </div>
         <div style={{ marginTop: 14 }}><CreditsLink /></div>
       </footer>
     </div>
@@ -586,8 +589,8 @@ const DEPTH_STEPS = [
     ),
   },
   {
-    n: 'III', kicker: 'The blazon', title: 'Down to the words', cap: 'the official description — yours to edit',
-    body: 'Every coat of arms has an official written description — its blazon. Read it, edit it, and watch the shield change to match.',
+    n: 'III', kicker: 'The blazon', title: 'Down to the words', cap: 'the formal description — yours to edit',
+    body: 'Every coat of arms has a formal written description — its blazon. Read it, edit it, and watch the shield change to match.',
     demo: (
       <div style={{ fontFamily: F.mono, fontSize: 12.5, lineHeight: 1.7 }}>
         <span style={{ color: C.gold }}>Azure</span><span style={{ color: C.muted }}>, a chevron </span><span style={{ color: '#D4AF52' }}>Or</span><span style={{ color: C.muted }}> between three bees </span><span style={{ color: C.cream }}>Argent</span>

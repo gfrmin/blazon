@@ -1344,7 +1344,7 @@ export default function Studio({ onBack }) {
           {/* A real focusable/clickable popover (task-21 a11y sweep) —
               replaces a `title`-only tooltip, which never reaches a keyboard
               or screen-reader user. */}
-          <InfoTip label="What is a blazon?" placement="top">The blazon is the official written description of your arms — every coat of arms has one.</InfoTip>
+          <InfoTip label="What is a blazon?" placement="top">The blazon is the formal written description of your arms — every coat of arms has one.</InfoTip>
           <LangToggle value={lang} onFormal={() => { setLang('formal'); track('blazon_lang_toggled'); }} onPlain={() => { setLang('plain'); track('blazon_lang_toggled'); }} plainLabel="Plain English" />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
