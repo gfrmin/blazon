@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Pages
+name: deploy
 
 on:
   push:
@@ -7,77 +7,51 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm test
-
   deploy:
+    # The recipe lives in site-kit so it is fixed in one place for every site.
+    uses: gfrmin/site-kit/.github/workflows/worker-deploy.yml@master
+    with:
+      build: npm run build
+      # 492 tests across 36 files. A red suite blocks the deploy.
+      test: npm test
+      # Smoke the Worker that was just deployed, not the custom domain: this URL
+      # is correct whether or not blazon.fyi has been cut over yet, and it can
+      # never accidentally assert against the old Pages deployment.
+      smoke-url: https://blazon.cloudflare-e5f.workers.dev/api/health
+      smoke-jq: ".generate and .turnstile and .checkout"
+    secrets: inherit
+
+  # Kept as a separate job because the shared smoke check reads the deployed
+  # Worker's own view of its config, and this one needs something the Worker
+  # cannot see: whether the *client* site key was present at BUILD time.
+  #
+  # The toxic direction is server-secret-set + client-key-absent. The Worker
+  # reports turnstile:true either way, so the shared check passes, while no
+  # widget ever renders and every /api/generate returns failed_challenge with
+  # nothing for the user to complete.
+  turnstile-config:
+    needs: deploy
     if: github.event_name != 'pull_request'
-    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      deployments: write
     steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 22
-          cache: npm
-
-      - run: npm ci
-
-      - run: npm run build
+      - name: Assert Turnstile is not half-configured
         env:
-          # Public Turnstile site key (set as a repo Variable, not a Secret).
-          # Empty in prod → the widget renders nothing → the server fail-safe
-          # blocks generation and the client uses its preset fallback.
-          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY }}
-          # PostHog project key/host (task-7 brief §3) — both repo Variables,
-          # public by design like the Turnstile site key above. Empty key →
-          # analytics.js skips init entirely and stays on the dev
-          # console.debug stub in prod too; an absent var resolves to '',
-          # so this can never fail the build.
-          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
-          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy dist --project-name=blazon --branch=master
-
-      - name: Post-deploy smoke — /api/health (toxic Turnstile half-config)
-        env:
-          HEALTH_URL: https://blazon-469.pages.dev/api/health
+          HEALTH_URL: https://blazon.cloudflare-e5f.workers.dev/api/health
           SITE_KEY_SET: ${{ vars.VITE_TURNSTILE_SITE_KEY != '' }}
         run: |
-          health="$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")" || { echo "::warning::health check unreachable (curl exit $?) — skipping config smoke"; exit 0; }
+          set -uo pipefail
+          health="$(curl -fsS --retry 5 --retry-delay 3 --retry-connrefused "$HEALTH_URL")" || {
+            echo "::warning::health check unreachable — skipping config smoke"; exit 0; }
           echo "health: $health"
-          turnstile=$(echo "$health" | jq -r '.turnstile') || { echo "::warning::failed to parse health check response (jq exit $?)"; exit 0; }
+          turnstile=$(printf '%s' "$health" | jq -r '.turnstile') || {
+            echo "::warning::could not parse health response"; exit 0; }
 
-          # Toxic direction: server secret set, no client site key at build time →
-          # no widget ever renders → every /api/generate returns failed_challenge
-          # with nothing for the user to complete. Fail the deploy.
           if [ "$turnstile" = "true" ] && [ "$SITE_KEY_SET" = "false" ]; then
-            echo "::error::Toxic Turnstile half-config: TURNSTILE_SECRET_KEY is set on the Pages project but VITE_TURNSTILE_SITE_KEY was empty at build time — no widget renders client-side, so every /api/generate call returns failed_challenge with nothing for the user to complete."
+            echo "::error::Toxic Turnstile half-config: TURNSTILE_SECRET_KEY is set on the Worker but VITE_TURNSTILE_SITE_KEY was empty at build time — no widget renders client-side, so every /api/generate returns failed_challenge with nothing for the user to complete."
             exit 1
           fi
-
-          # Reverse direction degrades safely today (challenge_unavailable →
-          # preset fallback) — warn only, don't fail.
           if [ "$turnstile" = "false" ] && [ "$SITE_KEY_SET" = "true" ]; then
-            echo "::warning::Turnstile site key is set but TURNSTILE_SECRET_KEY is not — the widget renders but /api/generate fail-safes to challenge_unavailable (preset fallback). Degrades safely, but likely a config oversight worth fixing."
+            echo "::warning::Turnstile site key is set but the Worker has no TURNSTILE_SECRET_KEY — the widget renders but /api/generate fail-safes to challenge_unavailable (preset fallback). Degrades safely, but likely a config oversight."
           fi

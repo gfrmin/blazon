@@ -8,3 +8,6 @@ dist/
 *.local
 .claude/
 .dev.vars
+
+# compiled functions/ bundle (wrangler pages functions build)
+.worker-build/

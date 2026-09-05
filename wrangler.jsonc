@@ -1,0 +1,65 @@
+{
+  // Cloudflare Workers config. Deploy by pushing to master —
+  // .github/workflows/deploy.yml calls the shared recipe in gfrmin/site-kit.
+  //
+  // Migrated from Cloudflare Pages 2026-09-05, last of the six sites on this
+  // account because it is the largest and the only one taking payments. The old
+  // Pages project `blazon` is left in place as the rollback: re-attaching
+  // blazon.fyi to it is a single API call.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "blazon",
+  "compatibility_date": "2026-09-05",
+
+  // functions/ compiled by `wrangler pages functions build` in the build script
+  // rather than rewritten onto a router. That is deliberate: functions/a/[payload].js
+  // chose regex string-replace over HTMLRewriter *specifically* so the same code
+  // runs under plain `node --test`, and 36 test files depend on that. A rewrite
+  // would invalidate the rationale and the tests together.
+  //
+  // Output goes to .worker-build/, NOT dist/worker/ — anything under
+  // assets.directory is uploaded and publicly fetchable, so compiling into the
+  // assets directory would publish the server bundle, including its inlined
+  // achievement data, at /worker/index.js.
+  "main": "./.worker-build/index.js",
+
+  "assets": {
+    "directory": "./dist",
+
+    // env.ASSETS is how functions/a/[payload].js fetches /index.html to rewrite
+    // its OG meta, and how the compiled router reaches assets at all. Without
+    // this binding those routes return 500 at runtime — the deploy still
+    // succeeds, so it is not caught until someone opens a share link.
+    "binding": "ASSETS",
+
+    // Replaces Pages' default SPA fallback, which is what made deep links and
+    // refreshes work here (/studio, /library, /a/<payload> are client routes in
+    // src/router.js). The old wrangler.toml carried a "NEVER add public/404.html"
+    // warning for exactly this reason; that warning is still live, because a
+    // 404.html would take precedence and break every deep link.
+    "not_found_handling": "single-page-application",
+
+    // Only the server routes go through the Worker; the SPA shell and its assets
+    // are served with no Worker invocation. /a/* must be here because it rewrites
+    // the OG meta on the HTML shell before it is served — served directly, the
+    // share link would render but its preview would be wrong.
+    "run_worker_first": ["/api/*", "/a/*"],
+  },
+
+  "kv_namespaces": [
+    // Rate-limit counters — abuse and cost backstop for /api/generate.
+    { "binding": "RATE", "id": "de4812ca80b3454193bb009defd3124e" },
+    // Purchase audit, a SEPARATE namespace from RATE by design: one write per
+    // real purchase, never expired, versus RATE's short-TTL counters.
+    // Best-effort only — /api/verify-payment still mints the unlock token if a
+    // write here fails. It is never a gate on unlocking.
+    //
+    // (The old wrangler.toml warned this id was a PLACEHOLDER to be replaced
+    // before deploy. Both namespaces exist and these are their real ids,
+    // verified against the API on 2026-09-05; the warning was stale.)
+    { "binding": "PURCHASES", "id": "6da8571c745b45be97d00b657fee4929" },
+  ],
+
+  "observability": {
+    "enabled": true,
+  },
+}
