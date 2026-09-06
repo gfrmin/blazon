@@ -115,12 +115,16 @@ personas are different progressive-disclosure *views* over this one AST.
   **Stripe Checkout** without webhooks: `functions/api/checkout.js` mints the
   session, `functions/api/verify-payment.js` verifies `paid` on return and mints
   an HMAC unlock token bound to the design hash (`functions/_lib/unlock.js`).
-  Needs `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `UNLOCK_SIGNING_SECRET` on the
-  Pages project — `/api/health` reports which of generate/turnstile/checkout are
+  Needs `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID`, `UNLOCK_SIGNING_SECRET` as Worker
+  secrets (`wrangler secret put`) — `/api/health` reports which of generate/turnstile/checkout are
   live, and the UI hides the paid button until it is.
 - **Analytics**: `src/analytics.js` instruments the full funnel (31 events,
   hardened property allowlist). It no-ops unless the build-time repo variable
-  `VITE_POSTHOG_KEY` is set.
+  `VITE_POSTHOG_KEY` is set — and it *was* unset from launch until 2026-09-06,
+  so every event was silently dropped in production. CI now refuses to build
+  without it (`require-vars`) and refuses to deploy a bundle that does not
+  contain it (`build-must-match`), because the no-op is invisible from outside:
+  a green suite and a 200 from the deployed site look identical either way.
 - The **heraldic model is now complete** (a full-achievement blazon AST — divisions,
   furs, lines of partition, ordinaries/diminutives/subordinaries, charge attitudes,
   marshalling). The **SVG renderer grows incrementally**: `Shield.jsx` draws the

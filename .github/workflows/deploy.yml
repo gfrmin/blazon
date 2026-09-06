@@ -14,6 +14,15 @@ jobs:
       build: npm run build
       # 492 tests across 36 files. A red suite blocks the deploy.
       test: npm test
+      # Both client-side keys, refused if unset. VITE_TURNSTILE_SITE_KEY moves
+      # here from the bespoke turnstile-config job below, which keeps only the
+      # half no shared check can do. VITE_POSTHOG_KEY is new: it was unset for
+      # months and analytics no-opped in production with nothing to show for it.
+      require-vars: VITE_POSTHOG_KEY VITE_TURNSTILE_SITE_KEY
+      # And then prove the key reached the bundle. `require-vars` cannot: a
+      # value can be present on the runner, exported, and dropped by the
+      # bundler. Matching the shape keeps the key itself out of this file.
+      build-must-match: 'phc_[A-Za-z0-9]{20,}'
       # Smoke the Worker that was just deployed, not the custom domain: this URL
       # is correct whether or not blazon.fyi has been cut over yet, and it can
       # never accidentally assert against the old Pages deployment.
@@ -48,6 +57,10 @@ jobs:
           turnstile=$(printf '%s' "$health" | jq -r '.turnstile') || {
             echo "::warning::could not parse health response"; exit 0; }
 
+          # The set/empty direction is now caught earlier and more cheaply by
+          # `require-vars` in the shared workflow, which refuses to build at all.
+          # Kept here as a backstop because this job sees the *deployed* Worker,
+          # so it still catches a secret that was removed after a green build.
           if [ "$turnstile" = "true" ] && [ "$SITE_KEY_SET" = "false" ]; then
             echo "::error::Toxic Turnstile half-config: TURNSTILE_SECRET_KEY is set on the Worker but VITE_TURNSTILE_SITE_KEY was empty at build time — no widget renders client-side, so every /api/generate returns failed_challenge with nothing for the user to complete."
             exit 1
