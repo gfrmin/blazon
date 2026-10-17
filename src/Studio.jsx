@@ -74,6 +74,24 @@ const ARRANGEMENTS = ['in pale', 'in fess', 'in chief'];
 const BEASTS = (CHARGES_BY_CATEGORY.find(([catName]) => catName === 'beast') || [null, []])[1];
 const HELM_ORDER = ['esquire', 'knight', 'baronet', 'peer', 'royal'];
 
+// Which design.rationale key each PartCard's copy is drawn from (Studio.jsx
+// findings, UX audit finding 01) — a part's rationale describes a SPECIFIC
+// value ("Azure — the deep blue…"), and no mutator updates it, so editing the
+// value it describes silently leaves the old copy attached to the new one.
+// apply() below invalidates the matching key on every edit instead; PartCard
+// renders nothing when a rationale is absent rather than a self-contradicting
+// sentence. 'division' maps to 'field' — THE FIELD card covers both a plain
+// tincture and a division under the same rationale line.
+const RATIONALE_KEY_FOR_PART = {
+  field: 'field',
+  division: 'field',
+  structure: 'ordinary',
+  symbol: 'charges',
+  motto: 'motto',
+  crest: 'crest',
+  supporters: 'supporters',
+};
+
 // Static herald one-liners — shown when generation didn't supply a per-part
 // rationale (task-14 brief §2, forward-note "Rationale copy").
 const CREST_FALLBACK_RATIONALE = 'The figure that crowns the helm — the last flourish above the shield.';
@@ -113,7 +131,7 @@ function PartCard({ tag, valueText, rationale, onSetAside, children }) {
           <span style={valueStyle}>{valueText}</span>
         )}
       </div>
-      <p style={rationaleStyle}>{rationale}</p>
+      {rationale && <p style={rationaleStyle}>{rationale}</p>}
       {children}
     </div>
   );
@@ -139,7 +157,8 @@ function ChapterRule({ label }) {
   return (
     <div style={{ margin: '30px 0 16px' }}>
       <GildedRule maxWidth={200} />
-      <div style={{ textAlign: 'center', fontSize: 11, letterSpacing: '2.6px', color: 'rgba(201,162,75,.7)', fontWeight: 600, marginTop: 9 }}>{label}</div>
+      {/* .78 not .7 — live-measured .7 at 4.24:1 on bg2, below WCAG AA (UX audit finding 04) */}
+      <div style={{ textAlign: 'center', fontSize: 11, letterSpacing: '2.6px', color: 'rgba(201,162,75,.78)', fontWeight: 600, marginTop: 9 }}>{label}</div>
     </div>
   );
 }
@@ -157,6 +176,12 @@ function ChapterRule({ label }) {
 // distinguishable from "timed out waiting for it".
 const TURNSTILE_TIMEOUT_MS = 25000;
 const TURNSTILE_TIMED_OUT = Symbol('turnstile-timed-out');
+
+// Below this, generate() has nothing to work with — an empty/near-empty
+// submission produced a fully-confabulated result with no indication anything
+// was wrong (UX audit finding 02). Same threshold gates the CTA and generate()
+// itself (belt-and-braces, same pattern openDownload()/Download already use).
+const MIN_DESC_LENGTH = 15;
 
 const AUTOSAVE_KEY = 'blazon:current';
 // Read once on mount, then cleared — set by App.jsx's openStudio() before
@@ -189,7 +214,14 @@ export default function Studio({ onBack }) {
   const [nameDraft, setNameDraft] = useState('');
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadSurface, setDownloadSurface] = useState('header'); // 'header' | 'result_peak' — which CTA opened it (analytics)
-  const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge'
+  const [genNotice, setGenNotice] = useState(null); // 'rate' | 'challenge' | 'empty'
+  // Whether the CURRENT design actually came from the AI, or from the
+  // preset-keyword fallback generate() reaches for when /api/generate is
+  // unreachable/unconfigured (UX audit finding 02) — drives the disclosure
+  // banner on the design step. Explicit preset-chip picks (selectPreset) are
+  // not a failure and don't set this; only generate()'s own silent fallback
+  // does.
+  const [designSource, setDesignSource] = useState(null); // 'ai' | 'preset_fallback' | null
   const [chargeQuery, setChargeQuery] = useState(''); // search the full charge catalog
   const turnstileRef = useRef(null);
   const genAbortRef = useRef(null); // AbortController for the in-flight /api/generate fetch
@@ -225,6 +257,19 @@ export default function Studio({ onBack }) {
   const pendingUnlockRef = useRef(null); // { hash, token } | null
   const [unlockTick, setUnlockTick] = useState(0);
 
+  // Verification COULDN'T BE CHECKED (network/server failure), as distinct
+  // from "checked, and it's genuinely unpaid" (UX audit finding — a paying
+  // customer whose verify-payment call failed was left on a blank page with
+  // ?cs= already stripped from the URL AND history, no message, no way back
+  // to their purchase). `pendingCsRef` holds the session id ONLY while a
+  // retry is live; `?cs=` itself is deliberately left in the URL in this
+  // state (see the effect below) so a plain refresh can also recover it.
+  const [paymentVerifyFailed, setPaymentVerifyFailed] = useState(false);
+  const [verifyingPayment, setVerifyingPayment] = useState(false);
+  const pendingCsRef = useRef(null);
+  const verifyMountedRef = useRef(true);
+  useEffect(() => () => { verifyMountedRef.current = false; }, []);
+
   // Abort an in-flight generation if the Studio unmounts (navigation away).
   useEffect(() => () => genAbortRef.current?.abort(), []);
 
@@ -248,6 +293,11 @@ export default function Studio({ onBack }) {
   //    chip pick never reaches this function (see selectPreset below). ──
   const generate = async () => {
     if (generating) return;
+    // Belt-and-braces alongside the CTA's own `disabled` (UX audit finding
+    // 02) — an empty/near-empty description has nothing for the AI to work
+    // with and previously produced a fully-confabulated result with no
+    // indication anything was wrong.
+    if (desc.trim().length < MIN_DESC_LENGTH) { setGenNotice('empty'); return; }
     setGenerating(true);
     setGenNotice(null);
     const started = Date.now();
@@ -332,7 +382,18 @@ export default function Studio({ onBack }) {
       // Canned presets predate the achievement model — backfill so the
       // fallback path also produces a full achievement, same as the AI path
       // (generate.js runs withDefaultAchievement() server-side).
-      next = withDefaultAchievement(JSON.parse(JSON.stringify(p.design)));
+      //
+      // Drop the preset's OWN rationale before backfilling (UX audit finding
+      // 02): it describes that preset's stock persona ("Azure — the deep
+      // blue of a clear Highland night… for HER roots"), not whatever the
+      // user actually typed. Carrying it through silently re-attributed a
+      // fabricated backstory to the user's real description — observed live:
+      // a Portuguese-fisherman-uncle description came back captioned as a
+      // Scottish grandmother. PartCard already renders nothing when a
+      // rationale is absent (see RATIONALE_KEY_FOR_PART), so dropping it here
+      // degrades to "no explanatory copy," not to broken markup.
+      const { rationale: _stockRationale, ...presetDesign } = p.design;
+      next = withDefaultAchievement(JSON.parse(JSON.stringify(presetDesign)));
     }
     const elapsed = Date.now() - started; // hold the spinner briefly so it never flashes
     if (elapsed < 900) await new Promise((res) => setTimeout(res, 900 - elapsed));
@@ -340,6 +401,7 @@ export default function Studio({ onBack }) {
     editsCountRef.current = 0;
     pendingFirstRenderRef.current = true; // consumed by the first_render effect below
     setDesign(next);
+    setDesignSource(fromAi ? 'ai' : 'preset_fallback');
     setGenerating(false);
     setLang('plain');
     setStep('design');
@@ -366,6 +428,7 @@ export default function Studio({ onBack }) {
     pendingFirstRenderRef.current = true; // consumed by the first_render effect below
     submitStartRef.current = performance.now();
     setDesign(next);
+    setDesignSource(null); // an explicit pick, not generate()'s failure fallback — no disclosure banner
     setLang('plain');
     setStep('design');
   };
@@ -373,6 +436,7 @@ export default function Studio({ onBack }) {
   const restart = () => {
     setStep('describe');
     setDesign(null);
+    setDesignSource(null);
     setDesc('');
     setCurrentId(null); // "Start over" always starts a fresh, unsaved design
     setNaming(false);
@@ -387,7 +451,15 @@ export default function Studio({ onBack }) {
   // here so every call-site below stays a plain `apply(fn, part, control,
   // ...args)` one-liner instead of a separate track() call each.
   const apply = (fn, part, control, ...args) => {
-    setDesign((d) => fn(d, ...args));
+    setDesign((d) => {
+      const next = fn(d, ...args);
+      const rKey = RATIONALE_KEY_FOR_PART[part];
+      if (rKey && next.rationale && rKey in next.rationale) {
+        const { [rKey]: _stale, ...rest } = next.rationale;
+        return { ...next, rationale: rest };
+      }
+      return next;
+    });
     const isFirstEdit = !hasEditedRef.current;
     hasEditedRef.current = true;
     editsCountRef.current += 1;
@@ -533,53 +605,92 @@ export default function Studio({ onBack }) {
   // `?cs=<session_id>` success redirect. Independent of, and possibly
   // resolving before OR after, the hash-restore effect above (both fire on
   // mount) — see pendingUnlockRef's own comment for how they rendezvous.
-  // Runs once per mount; `?cs=` is stripped below regardless of outcome, so
-  // a re-render never re-triggers this (and a genuine remount — e.g. the
-  // user hits refresh before the strip completes — safely re-verifies the
-  // SAME session_id, which /api/verify-payment treats idempotently).
-  useEffect(() => {
-    let cancelled = false;
-    const q = parseQuery(window.location.search);
-    (async () => {
-      if (q.cs) {
-        try {
-          const res = await fetch('/api/verify-payment', {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ session_id: q.cs }),
-          });
-          const data = await res.json().catch(() => ({}));
-          if (!cancelled) {
-            const intent = unlockIntentFromVerify(res.ok, data);
-            if (intent) {
-              pendingUnlockRef.current = intent;
-              // Force the finalize effect below to (re-)check NOW — the
-              // common case is `design` already settled (a local decode)
-              // well before this network round trip returns, so its own
-              // `[design]` dependency won't fire again on its own; see
-              // pendingUnlockRef's comment.
-              setUnlockTick((t) => t + 1);
-            } else {
-              // Verified but unpaid/unknown session — treat like a cancel
-              // return (no partial/half-unlocked state is ever shown).
-              track('checkout_abandoned');
-            }
-          }
-        } catch { /* network failure verifying — fail-safe: no crash, no false unlock */ }
-        try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
-        // Strip ?cs= either way — a one-shot session id must never linger in
-        // the address bar/history. Keeps whatever hash payload is present.
-        navigate('/studio' + window.location.hash, { replace: true });
-      } else {
-        let pending = false;
-        try { pending = sessionStorage.getItem(CHECKOUT_PENDING_KEY) === '1'; } catch { /* storage unavailable */ }
-        if (pending) {
-          track('checkout_abandoned'); // returned via cancel_url (or closed the Stripe tab) — no ?cs= at all
-          try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
-        }
+  //
+  // A hoisted function (not inlined in the effect below), because the retry
+  // affordance on `paymentVerifyFailed` needs to call the SAME verification
+  // exactly the same way a plain refresh would — see that state's own
+  // comment for the bug this fixes. `?cs=` is now stripped ONLY on an actual
+  // answer (paid, or genuinely unpaid/unknown) — never on a failure to check,
+  // since stripping it there is what turned a retryable hiccup into a
+  // customer who paid and landed on a blank page with no way back in.
+  const attemptVerifyPayment = async (sessionId) => {
+    setVerifyingPayment(true);
+    try {
+      const res = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId }),
+      });
+      if (!verifyMountedRef.current) return;
+      if (!res.ok) {
+        // The server itself failed to check (5xx, etc.) — NOT the same thing
+        // as "checked, and it's unpaid." Keep ?cs= so a retry/refresh can
+        // still recover this session.
+        pendingCsRef.current = sessionId;
+        setPaymentVerifyFailed(true);
+        setVerifyingPayment(false);
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      const data = await res.json().catch(() => ({}));
+      const intent = unlockIntentFromVerify(true, data);
+      setPaymentVerifyFailed(false);
+      setVerifyingPayment(false);
+      pendingCsRef.current = null;
+      if (intent) {
+        pendingUnlockRef.current = intent;
+        // Force the finalize effect below to (re-)check NOW — the
+        // common case is `design` already settled (a local decode)
+        // well before this network round trip returns, so its own
+        // `[design]` dependency won't fire again on its own; see
+        // pendingUnlockRef's comment.
+        setUnlockTick((t) => t + 1);
+      } else {
+        // A real, final answer: verified fine, and genuinely unpaid/unknown
+        // session — treat like a cancel return (no partial/half-unlocked
+        // state is ever shown). Distinct from the !res.ok branch above,
+        // which isn't an answer at all.
+        track('checkout_abandoned');
+      }
+      try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
+      // Only strip ?cs= once there's an actual answer — a one-shot session id
+      // must never linger once consumed, but must not be thrown away before
+      // that either. Keeps whatever hash payload is present.
+      navigate('/studio' + window.location.hash, { replace: true });
+    } catch {
+      // Network/offline verifying — same "couldn't check" case as !res.ok
+      // above, not a fail-safe-to-silence case: the user was just redirected
+      // back from a real Stripe Checkout, so a caught exception here means
+      // "retry," not "nothing happened."
+      if (!verifyMountedRef.current) return;
+      pendingCsRef.current = sessionId;
+      setPaymentVerifyFailed(true);
+      setVerifyingPayment(false);
+    }
+  };
+
+  const retryVerifyPayment = () => {
+    if (verifyingPayment || !pendingCsRef.current) return;
+    attemptVerifyPayment(pendingCsRef.current);
+  };
+
+  // Runs once per mount. A genuine remount (e.g. the user hits refresh while
+  // `paymentVerifyFailed` is showing) re-reads `?cs=` from the URL — still
+  // there, since the failure path above deliberately doesn't strip it — and
+  // safely re-verifies the SAME session_id, which /api/verify-payment treats
+  // idempotently.
+  useEffect(() => {
+    const q = parseQuery(window.location.search);
+    if (q.cs) {
+      attemptVerifyPayment(q.cs);
+    } else {
+      let pending = false;
+      try { pending = sessionStorage.getItem(CHECKOUT_PENDING_KEY) === '1'; } catch { /* storage unavailable */ }
+      if (pending) {
+        track('checkout_abandoned'); // returned via cancel_url (or closed the Stripe tab) — no ?cs= at all
+        try { sessionStorage.removeItem(CHECKOUT_PENDING_KEY); } catch { /* storage unavailable */ }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Finalize a verified-but-pending unlock once `design` has settled to the
@@ -898,12 +1009,33 @@ export default function Studio({ onBack }) {
         </div>
       </header>
 
+      {/* Payment-couldn't-be-confirmed banner (UX audit finding — previously
+          silent: a paying customer redirected back from Stripe whose
+          verification call failed landed on a blank describe step with no
+          message, no receipt, and no way back in, because ?cs= was stripped
+          from the URL and history in the same tick as the failure). Rendered
+          above the describe/design split so it's visible regardless of
+          which one the user lands on. */}
+      {paymentVerifyFailed && (
+        <div role="alert" style={{ background: 'rgba(178,58,58,.16)', borderBottom: '1px solid #B23A3A', padding: '13px 24px', display: 'flex', gap: 14, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', flex: 'none' }}>
+          <span style={{ fontSize: 13.5, color: '#F0CFCF', lineHeight: 1.5, textAlign: 'center' }}>
+            We took your payment but couldn't confirm it just now — this is usually temporary.
+          </span>
+          <button
+            onClick={retryVerifyPayment}
+            disabled={verifyingPayment}
+            style={{ background: 'transparent', border: '1px solid #E08A8A', color: '#F0CFCF', borderRadius: 7, padding: '6px 14px', fontSize: 13, cursor: verifyingPayment ? 'default' : 'pointer', opacity: verifyingPayment ? .6 : 1, fontFamily: F.sans, flex: 'none' }}
+          >{verifyingPayment ? 'Retrying…' : 'Retry'}</button>
+        </div>
+      )}
+
       {/* Main */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', minHeight: 0 }}>
         {/* Left — live preview. On mobile during the describe step there is nothing to
             preview yet, so the prompt (aside) leads and the empty preview follows. */}
         <div style={{ flex: isMobile ? 'none' : 1, order: isMobile && step === 'describe' ? 2 : 1, height: isMobile ? 'auto' : undefined, minHeight: isMobile ? 300 : undefined, maxHeight: isMobile ? '62vh' : undefined, background: 'radial-gradient(circle at 50% 42%, #1A2C44, #0B0E16)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: 20, left: 24, fontSize: 11, letterSpacing: '2.5px', color: 'rgba(201,162,75,.7)', fontWeight: 600 }}>LIVE PREVIEW</div>
+          {/* .78 not .7 — live-measured .7 at 4.42:1 on this background, below WCAG AA (UX audit finding 04) */}
+          <div style={{ position: 'absolute', top: 20, left: 24, fontSize: 11, letterSpacing: '2.5px', color: 'rgba(201,162,75,.78)', fontWeight: 600 }}>LIVE PREVIEW</div>
 
           {!generating && !design && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 18, opacity: .5 }}>
@@ -986,7 +1118,8 @@ export default function Studio({ onBack }) {
                 placeholder="My grandmother was from the Highlands of Scotland. She loved astronomy and the night sky, and she was the steady one who held the family together…"
                 style={{ width: '100%', minHeight: 150, background: '#0B111C', border: '1px solid rgba(201,162,75,.28)', borderRadius: 10, padding: 16, color: '#ECE6D8', fontSize: 15, lineHeight: 1.55, resize: 'vertical', fontFamily: 'inherit' }}
               />
-              <div style={{ fontSize: 12, color: 'rgba(236,230,216,.5)', margin: '16px 0 9px', letterSpacing: '.5px' }}>OR TRY ONE OF THESE</div>
+              {/* .56 not .5 — live-measured .5 at 4.43:1, below WCAG AA (UX audit finding 04) */}
+              <div style={{ fontSize: 12, color: 'rgba(236,230,216,.56)', margin: '16px 0 9px', letterSpacing: '.5px' }}>OR TRY ONE OF THESE</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {PRESETS.map((p, i) => (
                   <button key={i} onClick={() => selectPreset(i)} style={{ textAlign: 'left', background: '#0B111C', border: '1px solid rgba(201,162,75,.2)', borderRadius: 9, padding: '11px 14px', color: 'rgba(236,230,216,.82)', fontSize: 13.5, cursor: 'pointer' }}>{p.chip}</button>
@@ -1000,12 +1133,17 @@ export default function Studio({ onBack }) {
                   slow/stuck stretch. generate() itself also short-circuits on `generating`
                   (belt-and-braces), but a real `disabled` is what actually stops the click/
                   keyboard-Enter from reaching onClick at all. */}
-              <button onClick={generate} disabled={generating} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating ? 0.6 : 1, cursor: generating ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
+              {/* disabled also on a too-short description (UX audit finding 02) —
+                  belt-and-braces with generate()'s own MIN_DESC_LENGTH guard, same
+                  pattern as `disabled={generating}` above it. */}
+              <button onClick={generate} disabled={generating || desc.trim().length < MIN_DESC_LENGTH} style={{ ...goldBtn, width: '100%', marginTop: 14, padding: 15, borderRadius: 9, fontSize: 15.5, opacity: generating || desc.trim().length < MIN_DESC_LENGTH ? 0.6 : 1, cursor: generating || desc.trim().length < MIN_DESC_LENGTH ? 'default' : 'pointer' }}>{generating ? 'Designing…' : 'Create the coat of arms'}</button>
               {genNotice && (
                 <p style={{ fontSize: 12.5, color: '#E0B36A', textAlign: 'center', margin: '12px 0 0', lineHeight: 1.5 }}>
                   {genNotice === 'rate'
                     ? "You're generating quickly — give it a moment, then try again."
-                    : 'Please complete the verification above, then try again.'}
+                    : genNotice === 'empty'
+                      ? 'Tell us a bit more first — a name, a place, what they loved.'
+                      : 'Please complete the verification above, then try again.'}
                 </p>
               )}
               <p style={{ fontSize: 12, color: C.label, textAlign: 'center', margin: '14px 0 0', lineHeight: 1.5 }}>No heraldry knowledge required — you can change every choice afterwards.</p>
@@ -1015,10 +1153,24 @@ export default function Studio({ onBack }) {
           {step === 'design' && design && (
             <div style={{ animation: 'fadein .4s ease' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 28, margin: 0 }}>Here's what we made.</h2>
+                {/* A fallback result is never captioned as a success (UX audit
+                    finding 02) — "Here's what we made" implies the design reflects
+                    what was typed, which a preset-fallback result specifically does not. */}
+                <h2 style={{ fontFamily: "'Cormorant Garamond', serif", fontWeight: 600, fontSize: 28, margin: 0 }}>{designSource === 'preset_fallback' ? "Here's a starting point." : "Here's what we made."}</h2>
                 <button onClick={restart} style={{ background: 'transparent', border: 'none', color: C.gold, fontSize: 13, cursor: 'pointer', textDecoration: 'underline' }}>Start over</button>
               </div>
               <p style={{ fontSize: 14, color: 'rgba(236,230,216,.66)', lineHeight: 1.55, margin: '0 0 20px' }}>Tap any card to change a colour or shape. Open “more…” to go further — you don’t need to know a single heraldic word to start.</p>
+
+              {designSource === 'preset_fallback' && (
+                <div style={{ background: 'rgba(201,162,75,.12)', border: '1px solid rgba(201,162,75,.4)', borderRadius: 10, padding: '13px 15px', marginBottom: 18, display: 'flex', gap: 11, alignItems: 'flex-start' }}>
+                  <span style={{ color: C.gold, fontSize: 16, lineHeight: 1.2 }}>ⓘ</span>
+                  <span style={{ fontSize: 13, color: 'rgba(236,230,216,.85)', lineHeight: 1.5 }}>
+                    We couldn't reach the designer just now, so this is a starting point — it isn't based on what you wrote yet.{' '}
+                    <button onClick={generate} style={{ background: 'none', border: 'none', color: C.gold, fontSize: 13, cursor: 'pointer', textDecoration: 'underline', fontFamily: 'inherit', padding: 0 }}>Try again ↻</button>
+                    {' '}with your description, or tap any card below to make it yours.
+                  </span>
+                </div>
+              )}
 
               {warn && (
                 <div style={{ background: 'rgba(178,58,58,.16)', border: '1px solid #B23A3A', borderRadius: 10, padding: '13px 15px', marginBottom: 18, display: 'flex', gap: 11, alignItems: 'flex-start' }}>
@@ -1162,7 +1314,8 @@ export default function Studio({ onBack }) {
                       </div>
                     )}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 16, margin: '6px 0 13px' }}>
-                      <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.5)' }}>How many</span>
+                      {/* .56 not .5 — live-measured .5 at 4.49:1, below WCAG AA (UX audit finding 04) */}
+                      <span style={{ fontSize: 11.5, color: 'rgba(236,230,216,.56)' }}>How many</span>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#16273E', borderRadius: 8, padding: '5px 6px' }}>
                         <button aria-label="Fewer" onClick={() => apply(setChargeNumber, 'symbol', 'stepper', (chg.number || 1) - 1)} style={{ background: 'none', border: 'none', color: '#ECE6D8', fontSize: 18, cursor: 'pointer', width: 24 }}>−</button>
                         <span style={{ fontSize: 15, minWidth: 14, textAlign: 'center', fontWeight: 600 }}>{chg.number}</span>

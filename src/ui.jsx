@@ -70,7 +70,10 @@ export function Lift({ as: Tag = 'div', style, hoverStyle, lift = -3, children, 
 export function Swatch({ hex, active, title, onClick }) {
   return (
     <button
+      type="button"
       title={title}
+      aria-label={title}
+      aria-pressed={active}
       onClick={onClick}
       style={{
         width: 32, height: 32, borderRadius: '50%', background: hex, cursor: 'pointer', padding: 0,
@@ -86,6 +89,8 @@ export function Swatch({ hex, active, title, onClick }) {
 export function Pill({ active, children, onClick }) {
   return (
     <button
+      type="button"
+      aria-pressed={active}
       onClick={onClick}
       style={{
         padding: '7px 13px', borderRadius: 7, fontSize: 12.5, cursor: 'pointer',

@@ -24,11 +24,15 @@ export const C = {
   goldInk: '#1A1206', // text on a gold button
   cream: '#ECE6D8',
   muted: 'rgba(236,230,216,.66)',
-  muted2: 'rgba(236,230,216,.46)',
-  // For SMALL text (≤ ~14px): muted2 composites to ~3.9:1 on bg2 — fine for
-  // large type, below WCAG AA's 4.5:1 for small labels. This blends to ~5:1
-  // on bg/bg2. Use it wherever muted2 text renders under ~15px.
-  label: 'rgba(236,230,216,.58)',
+  // Live-measured (Playwright + computed-style contrast, not hand math) at
+  // ~3.9:1 on bg2/ink at .46 — below WCAG AA's 4.5:1 for small text, and
+  // muted2 IS used at small sizes throughout (SubLabel, card ghost rows,
+  // download-dialog copy). Raised to .56 (~5:1 on every dark surface in this
+  // palette) so it's simply correct wherever it's used, rather than relying
+  // on call sites to remember a font-size cutoff — that discipline wasn't
+  // holding in practice (UX audit finding 04).
+  muted2: 'rgba(236,230,216,.56)',
+  label: 'rgba(236,230,216,.58)', // live-measured ~5.5-6:1 on bg2/ink/panel — already AA-safe, no change needed
   // Parchment accent (gallery / gift / certificate — evokes the print product)
   parch: '#ECE3CB',
   parchEdge: '#D8CCAB',
