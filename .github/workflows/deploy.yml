@@ -12,6 +12,7 @@ jobs:
     uses: gfrmin/site-kit/.github/workflows/worker-deploy.yml@master
     with:
       build: npm run build
+      expect: Blazon
       # 492 tests across 36 files. A red suite blocks the deploy.
       test: npm test
       # Both client-side keys, refused if unset. VITE_TURNSTILE_SITE_KEY moves
