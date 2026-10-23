@@ -1,0 +1,15 @@
+# Blazon
+
+> Blazon designs heraldically authentic coats of arms from a plain-English description of a person. It is for anyone who wants a personal coat of arms, often as a gift, with the formal blazon that describes it.
+
+Each design is a full achievement (the shield with parts such as crest, helm, mantling, supporters and motto) that follows the heraldic rule of tincture, and is shown both as an image and as its formal blazon alongside a plain-English reading. Designs are made in the browser and can be edited element by element, saved locally, shared by link and downloaded. The charge artwork comes from DrawShield and is shared under CC BY-SA, as are the coats of arms Blazon generates.
+
+## Pages
+
+- [Home](https://blazon.fyi/): what Blazon does, with an interactive example coat of arms that changes as you tap its field, structure or symbol.
+- [Design Studio](https://blazon.fyi/studio): describe a person, generate a coat of arms, then swap its field, ordinary and charges with live tincture-rule checking; save, share or download the result.
+- [Library](https://blazon.fyi/library): the designs you have saved in this browser, to open, share, download or delete.
+
+## Optional
+
+- [Sitemap](https://blazon.fyi/sitemap.xml): the site's public pages in XML.
